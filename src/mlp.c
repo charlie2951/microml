@@ -4,7 +4,6 @@
 #include "py/mphal.h"
 #include "mlp.h"
 
-// MicroPython-compatible uniform random generator with fallback
 static float rand_uniform_mp(float limit) {
     #if MICROPY_PY_UTIME_TICKS_PERIOD
         uint32_t r = (uint32_t)mp_hal_ticks_ms();
@@ -12,7 +11,6 @@ static float rand_uniform_mp(float limit) {
         uint32_t r = (uint32_t)mp_hal_ticks_cpu();
     #endif
 
-    // Simple pseudo-random xorshift
     r ^= r << 13;
     r ^= r >> 17;
     r ^= r << 5;
@@ -26,7 +24,6 @@ void mlp_init(MLPModel *model, int input_dim, int hidden_dim, int output_dim) {
     model->hidden_dim = hidden_dim;
     model->output_dim = output_dim;
 
-    // Allocate on MicroPython GC Heap
     model->w1 = m_new(float, input_dim * hidden_dim);
     model->b1 = m_new0(float, hidden_dim);
     model->w2 = m_new(float, hidden_dim * output_dim);
@@ -40,7 +37,6 @@ void mlp_init(MLPModel *model, int input_dim, int hidden_dim, int output_dim) {
     model->h_act = m_new(float, hidden_dim);
     model->out_act = m_new(float, output_dim);
 
-    // Xavier initialization bounds
     float limit1 = sqrtf(6.0f / (input_dim + hidden_dim));
     for (int i = 0; i < input_dim * hidden_dim; i++) {
         model->w1[i] = rand_uniform_mp(limit1);
@@ -77,46 +73,40 @@ void mlp_forward(MLPModel *model, const float *x) {
         model->h_act[j] = sum > 0.0f ? sum : 0.0f; // ReLU
     }
 
-    // 2. Hidden -> Output (Linear + Softmax)
-    float max_val = -1e9f;
+    // 2. Hidden -> Output (Linear Identity Activation for Regression)
     for (int k = 0; k < model->output_dim; k++) {
         float sum = model->b2[k];
         for (int j = 0; j < model->hidden_dim; j++) {
             sum += model->h_act[j] * model->w2[j * model->output_dim + k];
         }
-        model->out_act[k] = sum;
-        if (sum > max_val) max_val = sum; // Numerical stability
-    }
-
-    // Softmax normalization
-    float exp_sum = 0.0f;
-    for (int k = 0; k < model->output_dim; k++) {
-        model->out_act[k] = expf(model->out_act[k] - max_val);
-        exp_sum += model->out_act[k];
-    }
-    for (int k = 0; k < model->output_dim; k++) {
-        model->out_act[k] /= exp_sum;
+        model->out_act[k] = sum; // Linear output
     }
 }
 
-void mlp_fit(MLPModel *model, const float *X, const int *y, int n_samples, int epochs, float lr, float momentum) {
+void mlp_fit(MLPModel *model, const float *X, const float *y, int n_samples, int epochs, float lr, float momentum) {
     float *dh = m_new(float, model->hidden_dim);
     float *dout = m_new(float, model->output_dim);
 
+    int log_interval = epochs >= 10 ? epochs / 10 : 1;
+
     for (int ep = 0; ep < epochs; ep++) {
+        float total_mse = 0.0f;
+
         for (int s = 0; s < n_samples; s++) {
             const float *x = &X[s * model->input_dim];
-            int label = y[s];
+            const float *target = &y[s * model->output_dim];
 
-            // Forward
+            // Forward Pass
             mlp_forward(model, x);
 
-            // Output gradient (Softmax + Cross Entropy derivative)
+            // Compute MSE Loss Gradient: dL/dOut = (y_pred - y_true)
             for (int k = 0; k < model->output_dim; k++) {
-                dout[k] = model->out_act[k] - (k == label ? 1.0f : 0.0f);
+                float diff = model->out_act[k] - target[k];
+                dout[k] = diff;
+                total_mse += diff * diff;
             }
 
-            // Hidden gradient (Backprop through W2 and ReLU derivative)
+            // Hidden Gradient (Backprop through W2 and ReLU derivative)
             for (int j = 0; j < model->hidden_dim; j++) {
                 float sum = 0.0f;
                 for (int k = 0; k < model->output_dim; k++) {
@@ -153,26 +143,20 @@ void mlp_fit(MLPModel *model, const float *X, const int *y, int n_samples, int e
                 model->b1[j] += model->vb1[j];
             }
         }
+
+        if ((ep + 1) % log_interval == 0 || ep == epochs - 1) {
+            float mean_mse = total_mse / (n_samples * model->output_dim);
+            mp_printf(&mp_plat_print, "Epoch %d/%d - MSE Loss: %.6f\n", ep + 1, epochs, (double)mean_mse);
+        }
     }
 
     m_free(dh, model->hidden_dim * sizeof(float));
     m_free(dout, model->output_dim * sizeof(float));
 }
 
-int mlp_predict(MLPModel *model, const float *x, float *probs) {
+void mlp_predict(MLPModel *model, const float *x, float *out_pred) {
     mlp_forward(model, x);
-
-    int max_idx = 0;
-    float max_p = model->out_act[0];
-
     for (int k = 0; k < model->output_dim; k++) {
-        if (probs != NULL) {
-            probs[k] = model->out_act[k];
-        }
-        if (model->out_act[k] > max_p) {
-            max_p = model->out_act[k];
-            max_idx = k;
-        }
+        out_pred[k] = model->out_act[k];
     }
-    return max_idx;
 }
