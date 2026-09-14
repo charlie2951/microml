@@ -7,49 +7,46 @@
 #include <string.h>
 
 // ==========================================
-// 1. ENHANCED K-NEAREST NEIGHBORS (KNN)
+// 1. KNN REGRESSOR
 // ==========================================
 typedef struct {
     float *X;
-    int *y;
+    float *y;
     int n_samples;
     int n_features;
     int k;
-    int n_classes;
-} KNNModel;
+} KNNRegressorModel;
 
-static inline void knn_init(KNNModel *model, int k) {
+static inline void knn_reg_init(KNNRegressorModel *model, int k) {
     model->X = NULL;
     model->y = NULL;
     model->n_samples = 0;
     model->n_features = 0;
     model->k = k;
-    model->n_classes = 2;
 }
 
-static inline void knn_fit(KNNModel *model, const float *X, const int *y, int n_samples, int n_features, int n_classes) {
-    if (model->X) m_free(model->X, model->n_samples * model->n_features * sizeof(float));
-    if (model->y) m_free(model->y, model->n_samples * sizeof(int));
+static inline void knn_reg_fit(KNNRegressorModel *model, const float *X, const float *y, int n_samples, int n_features) {
+    if (model->X) m_del(float, model->X, model->n_samples * model->n_features);
+    if (model->y) m_del(float, model->y, model->n_samples);
 
     model->n_samples = n_samples;
     model->n_features = n_features;
-    model->n_classes = n_classes;
     model->X = m_new(float, n_samples * n_features);
-    model->y = m_new(int, n_samples);
+    model->y = m_new(float, n_samples);
 
     memcpy(model->X, X, n_samples * n_features * sizeof(float));
-    memcpy(model->y, y, n_samples * sizeof(int));
+    memcpy(model->y, y, n_samples * sizeof(float));
 }
 
 typedef struct {
     float dist;
-    int label;
-} DistPair;
+    float val;
+} DistRegPair;
 
-static inline int knn_predict_proba(const KNNModel *model, const float *x, float *probs) {
-    if (model->n_samples == 0) return -1;
+static inline float knn_reg_predict(const KNNRegressorModel *model, const float *x) {
+    if (model->n_samples == 0) return 0.0f;
 
-    DistPair *dists = m_new(DistPair, model->n_samples);
+    DistRegPair *dists = m_new(DistRegPair, model->n_samples);
 
     for (int i = 0; i < model->n_samples; i++) {
         float sum = 0.0f;
@@ -58,12 +55,12 @@ static inline int knn_predict_proba(const KNNModel *model, const float *x, float
             sum += diff * diff;
         }
         dists[i].dist = sum;
-        dists[i].label = model->y[i];
+        dists[i].val = model->y[i];
     }
 
     // Sort to find K nearest
     for (int i = 1; i < model->n_samples; i++) {
-        DistPair key = dists[i];
+        DistRegPair key = dists[i];
         int j = i - 1;
         while (j >= 0 && dists[j].dist > key.dist) {
             dists[j + 1] = dists[j];
@@ -73,98 +70,73 @@ static inline int knn_predict_proba(const KNNModel *model, const float *x, float
     }
 
     int k_eff = (model->k < model->n_samples) ? model->k : model->n_samples;
-
-    memset(probs, 0, model->n_classes * sizeof(float));
+    float pred_sum = 0.0f;
     for (int i = 0; i < k_eff; i++) {
-        if (dists[i].label >= 0 && dists[i].label < model->n_classes) {
-            probs[dists[i].label] += 1.0f / k_eff;
-        }
+        pred_sum += dists[i].val;
     }
 
-    m_free(dists, model->n_samples * sizeof(DistPair));
-
-    int best_class = 0;
-    float max_p = probs[0];
-    for (int c = 1; c < model->n_classes; c++) {
-        if (probs[c] > max_p) {
-            max_p = probs[c];
-            best_class = c;
-        }
-    }
-    return best_class;
+    m_del(DistRegPair, dists, model->n_samples);
+    return pred_sum / k_eff;
 }
 
 // ==========================================
-// 2. ENHANCED DECISION TREE
+// 2. DECISION TREE REGRESSOR (MSE Loss)
 // ==========================================
-typedef struct TreeNode {
+typedef struct DTRegNode {
     int feature_idx;
     float threshold;
     int left;
     int right;
-    int label;
-    float prob; // Confidence score for predicted class
-} TreeNode;
+    float val;
+} DTRegNode;
 
 typedef struct {
-    TreeNode *nodes;
+    DTRegNode *nodes;
     int node_count;
     int max_depth;
     int n_features;
-    int n_classes;
-} DTModel;
+} DTRegressorModel;
 
-static inline void dt_init(DTModel *model, int max_depth) {
+static inline void dt_reg_init(DTRegressorModel *model, int max_depth) {
     model->nodes = NULL;
     model->node_count = 0;
     model->max_depth = max_depth;
     model->n_features = 0;
-    model->n_classes = 2;
 }
 
-static inline float calc_gini_multiclass(const int *y, const int *indices, int count, int n_classes) {
+static inline float calc_mse(const float *y, const int *indices, int count) {
     if (count == 0) return 0.0f;
-    int *counts = m_new0(int, n_classes);
+    float sum = 0.0f;
+    for (int i = 0; i < count; i++) sum += y[indices[i]];
+    float mean = sum / count;
+
+    float mse = 0.0f;
     for (int i = 0; i < count; i++) {
-        if (y[indices[i]] >= 0 && y[indices[i]] < n_classes) counts[y[indices[i]]]++;
+        float diff = y[indices[i]] - mean;
+        mse += diff * diff;
     }
-    float sum_p2 = 0.0f;
-    for (int c = 0; c < n_classes; c++) {
-        float p = (float)counts[c] / count;
-        sum_p2 += p * p;
-    }
-    m_free(counts, n_classes * sizeof(int));
-    return 1.0f - sum_p2;
+    return mse / count;
 }
 
-static inline int build_tree_node(DTModel *model, const float *X, const int *y, int *indices, int count, int depth) {
+static inline int build_tree_reg_node(DTRegressorModel *model, const float *X, const float *y, int *indices, int count, int depth) {
     int node_idx = model->node_count++;
-    model->nodes = m_renew(TreeNode, model->nodes, model->node_count - 1, model->node_count);
-    TreeNode *node = &model->nodes[node_idx];
+    model->nodes = m_renew(DTRegNode, model->nodes, model->node_count - 1, model->node_count);
+    DTRegNode *node = &model->nodes[node_idx];
 
-    int *counts = m_new0(int, model->n_classes);
-    for (int i = 0; i < count; i++) counts[y[indices[i]]]++;
-    
-    int best_c = 0;
-    for (int c = 1; c < model->n_classes; c++) {
-        if (counts[c] > counts[best_c]) best_c = c;
-    }
-    
-    int leaf_label = best_c;
-    float confidence = (float)counts[best_c] / count;
-    m_free(counts, model->n_classes * sizeof(int));
+    float sum = 0.0f;
+    for (int i = 0; i < count; i++) sum += y[indices[i]];
+    float leaf_val = sum / count;
 
-    if (depth >= model->max_depth || count <= 1 || confidence >= 0.99f) {
+    if (depth >= model->max_depth || count <= 1) {
         node->feature_idx = -1;
         node->threshold = 0.0f;
         node->left = -1;
         node->right = -1;
-        node->label = leaf_label;
-        node->prob = confidence;
+        node->val = leaf_val;
         return node_idx;
     }
 
-    float best_gini = 1.0f;
+    float best_mse = 1e9f;
     int best_feat = -1;
     float best_thresh = 0.0f;
 
@@ -189,15 +161,15 @@ static inline int build_tree_node(DTModel *model, const float *X, const int *y, 
                 else right_ind[r++] = indices[j];
             }
 
-            float gini_l = calc_gini_multiclass(y, left_ind, left_cnt, model->n_classes);
-            float gini_r = calc_gini_multiclass(y, right_ind, right_cnt, model->n_classes);
-            float weighted_gini = (left_cnt * gini_l + right_cnt * gini_r) / count;
+            float mse_l = calc_mse(y, left_ind, left_cnt);
+            float mse_r = calc_mse(y, right_ind, right_cnt);
+            float weighted_mse = (left_cnt * mse_l + right_cnt * mse_r) / count;
 
-            m_free(left_ind, left_cnt * sizeof(int));
-            m_free(right_ind, right_cnt * sizeof(int));
+            m_del(int, left_ind, left_cnt);
+            m_del(int, right_ind, right_cnt);
 
-            if (weighted_gini < best_gini) {
-                best_gini = weighted_gini;
+            if (weighted_mse < best_mse) {
+                best_mse = weighted_mse;
                 best_feat = f;
                 best_thresh = thresh;
             }
@@ -208,8 +180,7 @@ static inline int build_tree_node(DTModel *model, const float *X, const int *y, 
         node->feature_idx = -1;
         node->left = -1;
         node->right = -1;
-        node->label = leaf_label;
-        node->prob = confidence;
+        node->val = leaf_val;
         return node_idx;
     }
 
@@ -230,14 +201,13 @@ static inline int build_tree_node(DTModel *model, const float *X, const int *y, 
 
     node->feature_idx = best_feat;
     node->threshold = best_thresh;
-    node->label = leaf_label;
-    node->prob = confidence;
+    node->val = leaf_val;
 
-    int left_child = build_tree_node(model, X, y, best_l_ind, l_cnt, depth + 1);
-    int right_child = build_tree_node(model, X, y, best_r_ind, r_cnt, depth + 1);
+    int left_child = build_tree_reg_node(model, X, y, best_l_ind, l_cnt, depth + 1);
+    int right_child = build_tree_reg_node(model, X, y, best_r_ind, r_cnt, depth + 1);
 
-    m_free(best_l_ind, l_cnt * sizeof(int));
-    m_free(best_r_ind, r_cnt * sizeof(int));
+    m_del(int, best_l_ind, l_cnt);
+    m_del(int, best_r_ind, r_cnt);
 
     model->nodes[node_idx].left = left_child;
     model->nodes[node_idx].right = right_child;
@@ -245,32 +215,30 @@ static inline int build_tree_node(DTModel *model, const float *X, const int *y, 
     return node_idx;
 }
 
-static inline void dt_fit(DTModel *model, const float *X, const int *y, int n_samples, int n_features, int n_classes) {
+static inline void dt_reg_fit(DTRegressorModel *model, const float *X, const float *y, int n_samples, int n_features) {
     if (model->nodes) {
-        m_free(model->nodes, model->node_count * sizeof(TreeNode));
+        m_del(DTRegNode, model->nodes, model->node_count);
         model->nodes = NULL;
     }
     model->node_count = 0;
     model->n_features = n_features;
-    model->n_classes = n_classes;
 
     int *indices = m_new(int, n_samples);
     for (int i = 0; i < n_samples; i++) indices[i] = i;
 
-    build_tree_node(model, X, y, indices, n_samples, 0);
+    build_tree_reg_node(model, X, y, indices, n_samples, 0);
 
-    m_free(indices, n_samples * sizeof(int));
+    m_del(int, indices, n_samples);
 }
 
-static inline int dt_predict(const DTModel *model, const float *x, float *confidence) {
-    if (model->node_count == 0) return -1;
+static inline float dt_reg_predict(const DTRegressorModel *model, const float *x) {
+    if (model->node_count == 0) return 0.0f;
 
     int curr = 0;
     while (curr != -1) {
-        TreeNode *node = &model->nodes[curr];
+        DTRegNode *node = &model->nodes[curr];
         if (node->left == -1 && node->right == -1) {
-            if (confidence) *confidence = node->prob;
-            return node->label;
+            return node->val;
         }
         if (x[node->feature_idx] <= node->threshold) {
             curr = node->left;
@@ -278,117 +246,60 @@ static inline int dt_predict(const DTModel *model, const float *x, float *confid
             curr = node->right;
         }
     }
-    return model->nodes[0].label;
+    return model->nodes[0].val;
 }
 
 // ==========================================
-// 3. LINEAR & RBF KERNEL SVM
+// 3. SUPPORT VECTOR REGRESSOR (SVR Linear)
 // ==========================================
-#define SVM_KERNEL_LINEAR 0
-#define SVM_KERNEL_RBF    1
-
 typedef struct {
-    float *weights;      // Linear SVM weights or Dual Coeffs for RBF
-    float *support_vecs; // Only used for RBF
+    float *weights;
     float bias;
     int n_features;
-    int n_samples;
-    int kernel_type;
-    float gamma;
-} SVMModel;
+} SVRModel;
 
-static inline void svm_init(SVMModel *model, int kernel_type, float gamma) {
+static inline void svr_init(SVRModel *model) {
     model->weights = NULL;
-    model->support_vecs = NULL;
     model->bias = 0.0f;
     model->n_features = 0;
-    model->n_samples = 0;
-    model->kernel_type = kernel_type;
-    model->gamma = gamma;
 }
 
-static inline void svm_fit(SVMModel *model, const float *X, const int *y, int n_samples, int n_features, int epochs, float lr, float C) {
-    if (model->weights) m_free(model->weights, (model->kernel_type == SVM_KERNEL_LINEAR ? model->n_features : model->n_samples) * sizeof(float));
-    if (model->support_vecs) m_free(model->support_vecs, model->n_samples * model->n_features * sizeof(float));
+static inline void svr_fit(SVRModel *model, const float *X, const float *y, int n_samples, int n_features, int epochs, float lr, float epsilon) {
+    if (model->weights) {
+        m_del(float, model->weights, model->n_features);
+    }
 
     model->n_features = n_features;
-    model->n_samples = n_samples;
+    model->weights = m_new0(float, n_features);
     model->bias = 0.0f;
 
-    if (model->kernel_type == SVM_KERNEL_LINEAR) {
-        model->weights = m_new0(float, n_features);
-
-        for (int epoch = 0; epoch < epochs; epoch++) {
-            for (int i = 0; i < n_samples; i++) {
-                int target = (y[i] == 1) ? 1 : -1;
-                float dot = 0.0f;
-                for (int j = 0; j < n_features; j++) {
-                    dot += model->weights[j] * X[i * n_features + j];
-                }
-                float margin = target * (dot + model->bias);
-
-                if (margin < 1.0f) {
-                    for (int j = 0; j < n_features; j++) {
-                        model->weights[j] -= lr * ((2.0f / epochs * model->weights[j]) - (C * target * X[i * n_features + j]));
-                    }
-                    model->bias += lr * C * target;
-                } else {
-                    for (int j = 0; j < n_features; j++) {
-                        model->weights[j] -= lr * (2.0f / epochs * model->weights[j]);
-                    }
-                }
+    for (int epoch = 0; epoch < epochs; epoch++) {
+        for (int i = 0; i < n_samples; i++) {
+            float pred = model->bias;
+            for (int j = 0; j < n_features; j++) {
+                pred += model->weights[j] * X[i * n_features + j];
             }
-        }
-    } else { // RBF Kernel Optimization
-        model->weights = m_new0(float, n_samples);
-        model->support_vecs = m_new(float, n_samples * n_features);
-        memcpy(model->support_vecs, X, n_samples * n_features * sizeof(float));
 
-        for (int epoch = 0; epoch < epochs; epoch++) {
-            for (int i = 0; i < n_samples; i++) {
-                int target = (y[i] == 1) ? 1 : -1;
-                float sum = 0.0f;
+            float error = pred - y[i];
 
-                for (int sv = 0; sv < n_samples; sv++) {
-                    float dist = 0.0f;
-                    for (int j = 0; j < n_features; j++) {
-                        float diff = X[sv * n_features + j] - X[i * n_features + j];
-                        dist += diff * diff;
-                    }
-                    sum += model->weights[sv] * expf(-model->gamma * dist);
+            if (fabsf(error) > epsilon) {
+                float sign = (error > 0.0f) ? 1.0f : -1.0f;
+                for (int j = 0; j < n_features; j++) {
+                    model->weights[j] -= lr * sign * X[i * n_features + j];
                 }
-
-                float margin = target * (sum + model->bias);
-                if (margin < 1.0f) {
-                    model->weights[i] += lr * (C * target - model->weights[i]);
-                    model->bias += lr * C * target;
-                }
+                model->bias -= lr * sign;
             }
         }
     }
 }
 
-static inline int svm_predict(const SVMModel *model, const float *x) {
-    if (model->n_features == 0) return -1;
-    
-    if (model->kernel_type == SVM_KERNEL_LINEAR) {
-        float dot = 0.0f;
-        for (int j = 0; j < model->n_features; j++) {
-            dot += model->weights[j] * x[j];
-        }
-        return ((dot + model->bias) >= 0.0f) ? 1 : 0;
-    } else { // RBF
-        float sum = 0.0f;
-        for (int i = 0; i < model->n_samples; i++) {
-            float dist = 0.0f;
-            for (int j = 0; j < model->n_features; j++) {
-                float diff = model->support_vecs[i * model->n_features + j] - x[j];
-                dist += diff * diff;
-            }
-            sum += model->weights[i] * expf(-model->gamma * dist);
-        }
-        return ((sum + model->bias) >= 0.0f) ? 1 : 0;
+static inline float svr_predict(const SVRModel *model, const float *x) {
+    if (model->n_features == 0) return 0.0f;
+    float pred = model->bias;
+    for (int j = 0; j < model->n_features; j++) {
+        pred += model->weights[j] * x[j];
     }
+    return pred;
 }
 
 #endif // MICROML_H
