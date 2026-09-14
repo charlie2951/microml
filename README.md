@@ -1,5 +1,6 @@
 # microml
-Machine learning library for Micropython
+Machine learning library for Micropython <p>
+## Building your custom firmware from source 
 ```bash
 git clone https://github.com/micropython/micropython.git
 cd micropython
