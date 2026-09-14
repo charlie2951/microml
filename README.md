@@ -37,35 +37,40 @@ microml/
 └── CMakeLists.txt  # CMake configuration
 ```
 ## Build & Compilation Guide
-1. Build System Setup<p>
- **Using `micropython.mk` (Make-based ports: ESP32, STM32, UNIX)**<p>
- Add both microml.c and mlp.c to SRC_USERMOD_C:<p>
+1. Build System Setup (common for all ports) <p>
+* Create a directory and Clone the repo
+  ```
+  mkdir test_build
+  cd test_build
+  git clone github.com/microml
+  git clone micropython
+  cd micropython
+  make -C mpy-cross
 
-```cmake
-USERMOD_DIR_MICROML := $(USERMOD_DIR)
+  ```
+2. Installing Toolchain <p>
+Go back to your created build directory and install toolchain<p>
+   For esp32 port:
+   ```
+   git clone https://github.com/espressif/esp-idf.git
+   cd esp-idf
+   git checkout v5.5.1
+   git submodule update --init --recursive
+   cd esp-idf
+   ./install.sh
+   source export.sh # You will need to source export.sh for every new session.
+   ```
 
-SRC_USERMOD_C += $(USERMOD_DIR_MICROML)/microml.c
-SRC_USERMOD_C += $(USERMOD_DIR_MICROML)/mlp.c
+3. Build your BOARD <p>
+  ```
+  cd ports/esp32
+  make submodules
+  make BOARD=ESP32_GENERIC USER_C_MODULES=/path/to/microml/src/  #Find board name in ./boards
+  ```
 
-INC += -I$(USERMOD_DIR_MICROML)
-```
-**2. Using `CMakeLists.txt` (CMake-based ports: RP2040 / Raspberry Pi Pico/ESP32)**
-<p>Include both C source files in target_sources:
- 
- ```
-add_library(usermod_microml INTERFACE)
+Upon successful build, the `firmware.bin` will be available inside `/ports/esp32/build_dir`
 
-target_sources(usermod_microml INTERFACE
-    ${CMAKE_CURRENT_LIST_DIR}/microml.c
-    ${CMAKE_CURRENT_LIST_DIR}/mlp.c
-)
 
-target_include_directories(usermod_microml INTERFACE
-    ${CMAKE_CURRENT_LIST_DIR}
-)
-
-target_link_libraries(usermod INTERFACE usermod_microml)
-```
 ## Python API Reference
 1. Multi-Layer Perceptron Regressor `microml.MLP` Constructor: <p>
 - `microml.MLP(input_dim, hidden_dim, output_dim)`: Allocates model weights and momentum buffers on the MicroPython heap with Xavier uniform random initialization.
