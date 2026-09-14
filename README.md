@@ -37,38 +37,61 @@ microml/
 └── CMakeLists.txt  # CMake configuration
 ```
 ## Build & Compilation Guide
-1. Build System Setup (common for all ports) <p>
-* Create a directory and Clone the repo
-  ```
-  mkdir test_build
-  cd test_build
-  git clone https://github.com/charlie2951/microml.git
-  git clone https://github.com/micropython/micropython.git
-  cd micropython
-  make -C mpy-cross
+1. Typical Build System Setup on an Ubuntu system (common for all ports) <p>
 
-  ```
-2. Installing Toolchain <p>
-Go back to your created build directory and install toolchain<p>
-   For esp32 port:
+* Install prerequisites
+  
+    ```
+    sudo apt-get update
+    sudo apt-get install -y git wget make libncurses-dev flex bison gperf python3 python3-pip python3-venv cmake ninja-build   ccache libffi-dev libssl-dev dfu-util libusb-1.0-0  
    ```
-   git clone https://github.com/espressif/esp-idf.git
+
+* Create a directory and Clone the repo
+
+    ```
+    mkdir test_build
+    cd test_build
+    git clone https://github.com/charlie2951/microml.git
+    git clone https://github.com/micropython/micropython.git
+    cd micropython
+    git submodule update --init
+    make -C mpy-cross
+
+    ```
+    
+2. Installing Toolchain <p>
+
+Go back to your created build directory and install toolchain<p>
+   **For esp32 port:**
+   
+   ```
+   git clone -b v5.5.1 --recursive https://github.com/espressif/esp-idf.git
    cd esp-idf
    git checkout v5.5.1
    git submodule update --init --recursive
-   cd esp-idf
    ./install.sh
    source export.sh # You will need to source export.sh for every new session.
    ```
+   <p>
+    
+   **For `rp2` port:** 
+   ```bash
+   sudo apt install build-essential git python3 cmake gcc-arm-none-eabi libnewlib-arm-none-eabi
+   ```
 
-3. Build your BOARD <p>
+  3. Build your BOARD <p>
   ```
   cd ports/esp32
   make submodules
   make BOARD=ESP32_GENERIC BOARD_VARIANT=SPIRAM  USER_C_MODULES=../../../../microml/src/  #Find board name in ./boards
   ```
-
-Upon successful build, the `firmware.bin` will be available inside `/ports/esp32/build_dir`
+For `rp2` boards<p>
+```
+cd ports/rp2
+make submodules
+make BOARD=RPI_PICO  USER_C_MODULES=../../../../microml/src/  #Find board name in ./boards
+```
+Upon successful build, the `firmware.bin` (also `firmware.uf2` for rp2 port) will be available inside `/ports/esp32/build_board_dir` or `/ports/rp2/build_board_dir`
 
 
 ## Python API Reference
