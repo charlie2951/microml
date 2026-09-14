@@ -19,10 +19,11 @@ static float rand_uniform_mp(float limit) {
     return norm * 2.0f * limit - limit;
 }
 
-void mlp_init(MLPModel *model, int input_dim, int hidden_dim, int output_dim) {
+void mlp_init(MLPModel *model, int input_dim, int hidden_dim, int output_dim, int is_regression) {
     model->input_dim = input_dim;
     model->hidden_dim = hidden_dim;
     model->output_dim = output_dim;
+    model->is_regression = is_regression;
 
     model->w1 = m_new(float, input_dim * hidden_dim);
     model->b1 = m_new0(float, hidden_dim);
@@ -49,37 +50,54 @@ void mlp_init(MLPModel *model, int input_dim, int hidden_dim, int output_dim) {
 }
 
 void mlp_free(MLPModel *model) {
-    if (model->w1) m_free(model->w1, model->input_dim * model->hidden_dim * sizeof(float));
-    if (model->b1) m_free(model->b1, model->hidden_dim * sizeof(float));
-    if (model->w2) m_free(model->w2, model->hidden_dim * model->output_dim * sizeof(float));
-    if (model->b2) m_free(model->b2, model->output_dim * sizeof(float));
+    if (model->w1) m_del(float, model->w1, model->input_dim * model->hidden_dim);
+    if (model->b1) m_del(float, model->b1, model->hidden_dim);
+    if (model->w2) m_del(float, model->w2, model->hidden_dim * model->output_dim);
+    if (model->b2) m_del(float, model->b2, model->output_dim);
 
-    if (model->vw1) m_free(model->vw1, model->input_dim * model->hidden_dim * sizeof(float));
-    if (model->vb1) m_free(model->vb1, model->hidden_dim * sizeof(float));
-    if (model->vw2) m_free(model->vw2, model->hidden_dim * model->output_dim * sizeof(float));
-    if (model->vb2) m_free(model->vb2, model->output_dim * sizeof(float));
+    if (model->vw1) m_del(float, model->vw1, model->input_dim * model->hidden_dim);
+    if (model->vb1) m_del(float, model->vb1, model->hidden_dim);
+    if (model->vw2) m_del(float, model->vw2, model->hidden_dim * model->output_dim);
+    if (model->vb2) m_del(float, model->vb2, model->output_dim);
 
-    if (model->h_act) m_free(model->h_act, model->hidden_dim * sizeof(float));
-    if (model->out_act) m_free(model->out_act, model->output_dim * sizeof(float));
+    if (model->h_act) m_del(float, model->h_act, model->hidden_dim);
+    if (model->out_act) m_del(float, model->out_act, model->output_dim);
 }
 
 void mlp_forward(MLPModel *model, const float *x) {
-    // 1. Input -> Hidden (Linear + ReLU)
+    // Hidden Layer (ReLU)
     for (int j = 0; j < model->hidden_dim; j++) {
         float sum = model->b1[j];
         for (int i = 0; i < model->input_dim; i++) {
             sum += x[i] * model->w1[i * model->hidden_dim + j];
         }
-        model->h_act[j] = sum > 0.0f ? sum : 0.0f; // ReLU
+        model->h_act[j] = sum > 0.0f ? sum : 0.0f;
     }
 
-    // 2. Hidden -> Output (Linear Identity Activation for Regression)
+    // Output Layer
     for (int k = 0; k < model->output_dim; k++) {
         float sum = model->b2[k];
         for (int j = 0; j < model->hidden_dim; j++) {
             sum += model->h_act[j] * model->w2[j * model->output_dim + k];
         }
-        model->out_act[k] = sum; // Linear output
+        model->out_act[k] = sum;
+    }
+
+    // Classification uses Softmax Activation, Regression keeps linear values
+    if (!model->is_regression) {
+        float max_val = -1e9f;
+        for (int k = 0; k < model->output_dim; k++) {
+            if (model->out_act[k] > max_val) max_val = model->out_act[k];
+        }
+
+        float exp_sum = 0.0f;
+        for (int k = 0; k < model->output_dim; k++) {
+            model->out_act[k] = expf(model->out_act[k] - max_val);
+            exp_sum += model->out_act[k];
+        }
+        for (int k = 0; k < model->output_dim; k++) {
+            model->out_act[k] /= exp_sum;
+        }
     }
 }
 
@@ -90,23 +108,32 @@ void mlp_fit(MLPModel *model, const float *X, const float *y, int n_samples, int
     int log_interval = epochs >= 10 ? epochs / 10 : 1;
 
     for (int ep = 0; ep < epochs; ep++) {
-        float total_mse = 0.0f;
+        float total_loss = 0.0f;
 
         for (int s = 0; s < n_samples; s++) {
             const float *x = &X[s * model->input_dim];
             const float *target = &y[s * model->output_dim];
 
-            // Forward Pass
             mlp_forward(model, x);
 
-            // Compute MSE Loss Gradient: dL/dOut = (y_pred - y_true)
-            for (int k = 0; k < model->output_dim; k++) {
-                float diff = model->out_act[k] - target[k];
-                dout[k] = diff;
-                total_mse += diff * diff;
+            if (model->is_regression) {
+                // Mean Squared Error Loss gradient calculation: dL/dOut = 2 * (pred - y)
+                for (int k = 0; k < model->output_dim; k++) {
+                    float diff = model->out_act[k] - target[k];
+                    dout[k] = 2.0f * diff;
+                    total_loss += diff * diff;
+                }
+            } else {
+                // Cross Entropy Loss gradient calculation
+                int label = (int)target[0];
+                for (int k = 0; k < model->output_dim; k++) {
+                    dout[k] = model->out_act[k] - (k == label ? 1.0f : 0.0f);
+                }
+                float p_correct = model->out_act[label] > 1e-7f ? model->out_act[label] : 1e-7f;
+                total_loss += -logf(p_correct);
             }
 
-            // Hidden Gradient (Backprop through W2 and ReLU derivative)
+            // Hidden gradient
             for (int j = 0; j < model->hidden_dim; j++) {
                 float sum = 0.0f;
                 for (int k = 0; k < model->output_dim; k++) {
@@ -115,7 +142,7 @@ void mlp_fit(MLPModel *model, const float *X, const float *y, int n_samples, int
                 dh[j] = (model->h_act[j] > 0.0f) ? sum : 0.0f;
             }
 
-            // Update W2 and Bias 2
+            // Backprop update for W2 & B2
             for (int j = 0; j < model->hidden_dim; j++) {
                 for (int k = 0; k < model->output_dim; k++) {
                     int idx = j * model->output_dim + k;
@@ -129,7 +156,7 @@ void mlp_fit(MLPModel *model, const float *X, const float *y, int n_samples, int
                 model->b2[k] += model->vb2[k];
             }
 
-            // Update W1 and Bias 1
+            // Backprop update for W1 & B1
             for (int i = 0; i < model->input_dim; i++) {
                 for (int j = 0; j < model->hidden_dim; j++) {
                     int idx = i * model->hidden_dim + j;
@@ -145,18 +172,18 @@ void mlp_fit(MLPModel *model, const float *X, const float *y, int n_samples, int
         }
 
         if ((ep + 1) % log_interval == 0 || ep == epochs - 1) {
-            float mean_mse = total_mse / (n_samples * model->output_dim);
-            mp_printf(&mp_plat_print, "Epoch %d/%d - MSE Loss: %.6f\n", ep + 1, epochs, (double)mean_mse);
+            float avg_loss = total_loss / n_samples;
+            mp_printf(&mp_plat_print, "Epoch %d/%d - MSE Loss: %.6f\n", ep + 1, epochs, (double)avg_loss);
         }
     }
 
-    m_free(dh, model->hidden_dim * sizeof(float));
-    m_free(dout, model->output_dim * sizeof(float));
+    m_del(float, dh, model->hidden_dim);
+    m_del(float, dout, model->output_dim);
 }
 
-void mlp_predict(MLPModel *model, const float *x, float *out_pred) {
+void mlp_predict_reg(MLPModel *model, const float *x, float *out) {
     mlp_forward(model, x);
     for (int k = 0; k < model->output_dim; k++) {
-        out_pred[k] = model->out_act[k];
+        out[k] = model->out_act[k];
     }
 }
