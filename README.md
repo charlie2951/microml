@@ -17,7 +17,7 @@ It features classical ML algorithms as well as an optimized **Multi-Layer Percep
   * **K-Nearest Neighbors (KNN)** with confidence probabilities.
   * **Decision Tree** with Gini impurity splitting and binary `save`/`load` file serialization.
   * **Support Vector Machine (SVM)** supporting both Linear and Radial Basis Function (RBF) kernels.
-* **Embedded Resource Friendly:**
+* **Embedded Resource-Friendly:**
   * Zero dynamic memory fragmentation via MicroPython GC heap routines (`m_new`, `m_free`).
   * Direct buffer protocol execution on native Python `array.array('f')` and `array.array('i')` data types without extra memory copying.
 
@@ -38,8 +38,8 @@ microml/
 ```
 ## Build & Compilation Guide
 1. Build System Setup<p>
-Using micropython.mk (Make-based ports: ESP32, STM32, UNIX)<p>
-Add both microml.c and mlp.c to SRC_USERMOD_C:<p>
+ **Using `micropython.mk` (Make-based ports: ESP32, STM32, UNIX)**<p>
+ Add both microml.c and mlp.c to SRC_USERMOD_C:<p>
 
 ```cmake
 USERMOD_DIR_MICROML := $(USERMOD_DIR)
@@ -49,3 +49,102 @@ SRC_USERMOD_C += $(USERMOD_DIR_MICROML)/mlp.c
 
 INC += -I$(USERMOD_DIR_MICROML)
 ```
+**2. Using `CMakeLists.txt` (CMake-based ports: RP2040 / Raspberry Pi Pico/ESP32)**
+<p>Include both C source files in target_sources:
+ 
+ ```
+add_library(usermod_microml INTERFACE)
+
+target_sources(usermod_microml INTERFACE
+    ${CMAKE_CURRENT_LIST_DIR}/microml.c
+    ${CMAKE_CURRENT_LIST_DIR}/mlp.c
+)
+
+target_include_directories(usermod_microml INTERFACE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_link_libraries(usermod INTERFACE usermod_microml)
+```
+## Python API Reference
+1. Multi-Layer Perceptron Regressor `microml.MLP` Constructor: <p>
+- `microml.MLP(input_dim, hidden_dim, output_dim)`: Allocates model weights and momentum buffers on the MicroPython heap with Xavier uniform random initialization.
+- `fit(X, y, epochs=100, lr=0.01, momentum=0.9)`:Trains the neural network using SGD with momentum and MSE loss.
+- `X: array.array('f')` containing flattened float inputs (length: $N \times input~dim$).
+- `y: array.array('f')` containing flattened float target values (length: $N \times output~dim$).
+- `epochs (int)`: Number of training iterations.
+- `lr (float)`: Learning rate step size.
+- `momentum (float`: Momentum fraction (range: 0.0 to 1.0).
+- `predict(X_sample)`Runs forward propagation on a single sample.
+- `X_sample:` array.array('f') containing input features for 1 sample. Returns: list of float predicted values.
+<p>
+ 
+2. Decision Tree Classifier `(microml.DecisionTree)`:<p>
+ 
+ - `microml.DecisionTree(max_depth=5)`: Instantiates a binary decision tree.
+ - `fit(X, y, n_features, n_classes=2)`: Fits tree nodes on integer target labels (array.array('i')).
+ - `predict(X_sample)`: Returns a tuple (predicted_class, confidence_score).
+ - `save(filename)`: Saves binary tree structure directly to the device filesystem.
+ - `load(filename)`: Restores saved model structure from file.
+
+3. K-Nearest Neighbors Classifier `(microml.KNN)`:<p>
+
+- `microml.KNN(k=3)`: Instantiates a KNN classifier.
+- `fit(X, y, n_features, n_classes=2)`: Stores dataset pointers on the heap.
+- `predict_proba(X_sample)`: Returns a tuple (predicted_class, [class_probabilities]).
+
+4. Support Vector Machine (microml.SVM): <p>
+
+- `microml.SVM(kernel_type, gamma=0.5)`:
+- `Kernels`: **microml.KERNEL_LINEAR**, **microml.KERNEL_RBF.fit(X, y, n_features, epochs=100, lr=0.01, C=1.0)**: Optimizes support vector margins.
+- `predict(X_sample)`: Returns binary predicted class (0 or 1).
+
+## Sine wave example
+```python
+import array
+import math
+import microml
+
+# 1. Prepare Training Dataset (32 Points around a Sine Wave)
+N_SAMPLES = 32
+raw_X = []
+raw_y = []
+
+for i in range(N_SAMPLES):
+    angle = (2.0 * math.pi * i) / N_SAMPLES
+    
+    # Input feature: Normalized Angle in range [0.0, 1.0]
+    raw_X.append(angle / (2.0 * math.pi))
+    
+    # Target value: Continuous Sine in range [-1.0, 1.0]
+    raw_y.append(math.sin(angle))
+
+# Pack data into C-compatible float arrays
+X = array.array('f', raw_X)
+y = array.array('f', raw_y)
+
+# 2. Instantiate MLP Regressor (1 Input -> 12 Hidden Units -> 1 Continuous Output)
+nn = microml.MLP(1, 12, 1)
+
+print("Training MLP Sine Wave Regressor...")
+# Train model for 2000 epochs with lr=0.05 and momentum=0.9
+nn.fit(X, y, 2000, 0.05, 0.9)
+
+# 3. Test Predictions Across Samples
+print("\n--- Model Inference Evaluation ---")
+test_angles = [0.0, math.pi / 4, math.pi / 2, math.pi, 3 * math.pi / 2]
+
+for angle in test_angles:
+    # Scale test input matching training feature space
+    norm_angle = angle / (2.0 * math.pi)
+    test_sample = array.array('f', [norm_angle])
+    
+    # Predict continuous value
+    pred = nn.predict(test_sample)
+    actual = math.sin(angle)
+    
+    print("Angle: {:5.2f} rad | Predicted: {:6.3f} | Actual: {:6.3f} | Error: {:6.3f}".format(
+        angle, pred[0], actual, abs(pred[0] - actual)
+    ))
+```
+### Result
