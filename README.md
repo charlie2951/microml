@@ -1,4 +1,4 @@
-![](https://komarev.com/ghpvc/?username=charlie2951&color=brightgreen) ![GitHub commit activity](https://img.shields.io/github/commit-activity/t/charlie2951/microml?label=Total%20commit) ![GitHub Repo stars](https://img.shields.io/github/stars/charlie2951/microml?style=flat)
+![GitHub commit activity](https://img.shields.io/github/commit-activity/t/charlie2951/microml?label=Total%20commit) ![GitHub Repo stars](https://img.shields.io/github/stars/charlie2951/microml?style=flat)
 
 
 # MicroML: Lightweight Machine Learning Module for MicroPython
