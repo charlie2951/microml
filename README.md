@@ -42,8 +42,8 @@ microml/
   ```
   mkdir test_build
   cd test_build
-  git clone github.com/microml
-  git clone micropython
+  git clone https://github.com/charlie2951/microml.git
+  git clone https://github.com/micropython/micropython.git
   cd micropython
   make -C mpy-cross
 
@@ -65,7 +65,7 @@ Go back to your created build directory and install toolchain<p>
   ```
   cd ports/esp32
   make submodules
-  make BOARD=ESP32_GENERIC USER_C_MODULES=/path/to/microml/src/  #Find board name in ./boards
+  make BOARD=ESP32_GENERIC BOARD_VARIANT=SPIRAM  USER_C_MODULES=../../../../microml/src/  #Find board name in ./boards
   ```
 
 Upon successful build, the `firmware.bin` will be available inside `/ports/esp32/build_dir`
