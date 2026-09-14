@@ -1,8 +1,8 @@
-# MicroML: Lightweight Machine Learning C-Module for MicroPython
+# MicroML: Lightweight Machine Learning Module for MicroPython
 
-`MicroML` is a lightweight, zero-dependency C-module built for MicroPython that enables on-device training and inference directly on microcontrollers (e.g., ESP32, RP2040, STM32, nRF52).
+`MicroML` is a lightweight, zero-dependency module built for MicroPython that enables on-device training and inference directly on microcontrollers (e.g., ESP32, RP2040, STM32, nRF52).
 
-It features classical ML algorithms as well as an optimized **Multi-Layer Perceptron (MLP)** engine supporting non-linear regression using Mean Squared Error (MSE) loss and Stochastic Gradient Descent (SGD) with momentum.
+It features classical ML algorithms as well as an optimized **Multi-Layer Perceptron (MLP)** engine supporting non-linear regression using Mean Squared Error (MSE) loss and Stochastic Gradient Descent (SGD) with momentum. To use it, you need to use the custom firmware where these API are written in C, compiled as external C modules, and frozen inside the firmware, thus providing optimum performance
 
 ---
 
@@ -25,17 +25,20 @@ It features classical ML algorithms as well as an optimized **Multi-Layer Percep
 
 ## Repository Structure
 
-Place the source files in your custom module directory inside the MicroPython source tree:
-
 ```text
 microml/
-├── microml.c       # MicroPython bindings & C-module wrappers
-├── microml.h       # Headers for KNN, DecisionTree, and SVM implementations
-├── mlp.c           # MLP Forward/Backward propagation engine
-├── mlp.h           # MLP model definitions and memory interfaces
-├── micropython.mk  # Makefile configuration
-└── CMakeLists.txt  # CMake configuration
+├── examples/       # MicroPython bindings & C-module wrappers
+├── firmware/       # pre-built firmware for some port
+├── src/           # C-module wrappers
+       ├──microml.c       # MicroPython bindings & C-module wrappers
+       ├── microml.h       # Headers for KNN, DecisionTree, and SVM implementations
+       ├── mlp.c           # MLP Forward/Backward propagation engine
+       ├── mlp.h           # MLP model definitions and memory interfaces
+       ├── micropython.mk  # Makefile configuration
+       └── CMakeLists.txt  # CMake configuration
 ```
+
+
 ## Build & Compilation Guide
 1. Typical Build System Setup on an Ubuntu system (common for all ports) <p>
 
@@ -133,46 +136,54 @@ import array
 import math
 import microml
 
-# 1. Prepare Training Dataset (32 Points around a Sine Wave)
-N_SAMPLES = 32
-raw_X = []
-raw_y = []
+# 1. Generate Training Data (Sinewave: y = sin(x))
+NUM_SAMPLES = 50
+X_raw = []
+y_raw = []
 
-for i in range(N_SAMPLES):
-    angle = (2.0 * math.pi * i) / N_SAMPLES
-    
-    # Input feature: Normalized Angle in range [0.0, 1.0]
-    raw_X.append(angle / (2.0 * math.pi))
-    
-    # Target value: Continuous Sine in range [-1.0, 1.0]
-    raw_y.append(math.sin(angle))
+# Generate points in range [-pi, pi]
+step = (2 * math.pi) / NUM_SAMPLES
+for i in range(NUM_SAMPLES):
+    x_val = -math.pi + i * step
+    y_val = math.sin(x_val)
+
+    X_raw.append(x_val)
+    y_raw.append(y_val)
 
 # Pack data into C-compatible float arrays
-X = array.array('f', raw_X)
-y = array.array('f', raw_y)
+X_train = array.array("f", X_raw)
+y_train = array.array("f", y_raw)
 
-# 2. Instantiate MLP Regressor (1 Input -> 12 Hidden Units -> 1 Continuous Output)
-nn = microml.MLP(1, 12, 1)
+# 2. Instantiate MLPRegressor
+# Architecture: 1 Input -> 8 Hidden Neurons -> 1 Output
+mlp_reg = microml.MLPRegressor(1, 16, 1)
 
-print("Training MLP Sine Wave Regressor...")
-# Train model for 2000 epochs with lr=0.05 and momentum=0.9
-nn.fit(X, y, 2000, 0.05, 0.9)
+# 3. Train the Model
+# Parameters: fit(X, y, epochs, learning_rate, momentum)
+print("Training MLP Regressor on Sine Wave...")
+mlp_reg.fit(X_train, y_train, 5000, 0.001, 0.9)
 
-# 3. Test Predictions Across Samples
-print("\n--- Model Inference Evaluation ---")
-test_angles = [0.0, math.pi / 4, math.pi / 2, math.pi, 3 * math.pi / 2]
+# 4. Evaluate & Predict
+print("\nPredictions vs Actual:")
+print("----------------------------")
+print("  x   |  Predicted  |   Actual   | Error")
+print("----------------------------")
 
-for angle in test_angles:
-    # Scale test input matching training feature space
-    norm_angle = angle / (2.0 * math.pi)
-    test_sample = array.array('f', [norm_angle])
-    
-    # Predict continuous value
-    pred = nn.predict(test_sample)
-    actual = math.sin(angle)
-    
-    print("Angle: {:5.2f} rad | Predicted: {:6.3f} | Actual: {:6.3f} | Error: {:6.3f}".format(
-        angle, pred[0], actual, abs(pred[0] - actual)
-    ))
+# Test 5 sample points
+test_points = [-math.pi / 2, -math.pi / 4, 0.0, math.pi / 4, math.pi / 2]
+
+for x_test in test_points:
+    x_buf = array.array("f", [x_test])
+
+    # Model outputs a single float value directly
+    pred = mlp_reg.predict(x_buf)
+    actual = math.sin(x_test)
+    error = abs(pred - actual)
+
+    print(f"{x_test: .2f} |  {pred: .4f}    |  {actual: .4f}  | {error:.4f}")
+
 ```
 ### Result
+
+<img width="400" height="400" alt="image" src="https://github.com/user-attachments/assets/5ef09b3a-db8c-4b20-a2bb-a5131e490264" />
+
