@@ -18,13 +18,14 @@ typedef struct {
 
     float *h_act;
     float *out_act;
-    int is_regression; // 0 for Classification, 1 for Regression
+    int is_regression; // 0 = Classification (Cross-Entropy), 1 = Regression (MSE)
 } MLPModel;
 
 void mlp_init(MLPModel *model, int input_dim, int hidden_dim, int output_dim, int is_regression);
 void mlp_free(MLPModel *model);
 void mlp_forward(MLPModel *model, const float *x);
 void mlp_fit(MLPModel *model, const float *X, const float *y, int n_samples, int epochs, float lr, float momentum);
+int mlp_predict(MLPModel *model, const float *x, float *probs);
 void mlp_predict_reg(MLPModel *model, const float *x, float *out);
 
 #endif // MLP_H

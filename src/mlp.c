@@ -74,7 +74,7 @@ void mlp_forward(MLPModel *model, const float *x) {
         model->h_act[j] = sum > 0.0f ? sum : 0.0f;
     }
 
-    // Output Layer
+    // Output Layer (Linear)
     for (int k = 0; k < model->output_dim; k++) {
         float sum = model->b2[k];
         for (int j = 0; j < model->hidden_dim; j++) {
@@ -83,7 +83,7 @@ void mlp_forward(MLPModel *model, const float *x) {
         model->out_act[k] = sum;
     }
 
-    // Classification uses Softmax Activation, Regression keeps linear values
+    // Apply Softmax only for classification
     if (!model->is_regression) {
         float max_val = -1e9f;
         for (int k = 0; k < model->output_dim; k++) {
@@ -109,28 +109,39 @@ void mlp_fit(MLPModel *model, const float *X, const float *y, int n_samples, int
 
     for (int ep = 0; ep < epochs; ep++) {
         float total_loss = 0.0f;
+        int correct = 0;
 
         for (int s = 0; s < n_samples; s++) {
             const float *x = &X[s * model->input_dim];
-            const float *target = &y[s * model->output_dim];
 
             mlp_forward(model, x);
 
             if (model->is_regression) {
-                // Mean Squared Error Loss gradient calculation: dL/dOut = 2 * (pred - y)
+                // MSE Loss: gradient = 2 * (pred - target)
+                const float *target = &y[s * model->output_dim];
                 for (int k = 0; k < model->output_dim; k++) {
                     float diff = model->out_act[k] - target[k];
                     dout[k] = 2.0f * diff;
                     total_loss += diff * diff;
                 }
             } else {
-                // Cross Entropy Loss gradient calculation
-                int label = (int)target[0];
+                // Cross-Entropy Loss
+                int label = (int)y[s];
                 for (int k = 0; k < model->output_dim; k++) {
                     dout[k] = model->out_act[k] - (k == label ? 1.0f : 0.0f);
                 }
                 float p_correct = model->out_act[label] > 1e-7f ? model->out_act[label] : 1e-7f;
                 total_loss += -logf(p_correct);
+
+                int pred_class = 0;
+                float max_p = model->out_act[0];
+                for (int k = 1; k < model->output_dim; k++) {
+                    if (model->out_act[k] > max_p) {
+                        max_p = model->out_act[k];
+                        pred_class = k;
+                    }
+                }
+                if (pred_class == label) correct++;
             }
 
             // Hidden gradient
@@ -142,7 +153,7 @@ void mlp_fit(MLPModel *model, const float *X, const float *y, int n_samples, int
                 dh[j] = (model->h_act[j] > 0.0f) ? sum : 0.0f;
             }
 
-            // Backprop update for W2 & B2
+            // Update W2 & B2
             for (int j = 0; j < model->hidden_dim; j++) {
                 for (int k = 0; k < model->output_dim; k++) {
                     int idx = j * model->output_dim + k;
@@ -156,7 +167,7 @@ void mlp_fit(MLPModel *model, const float *X, const float *y, int n_samples, int
                 model->b2[k] += model->vb2[k];
             }
 
-            // Backprop update for W1 & B1
+            // Update W1 & B1
             for (int i = 0; i < model->input_dim; i++) {
                 for (int j = 0; j < model->hidden_dim; j++) {
                     int idx = i * model->hidden_dim + j;
@@ -173,12 +184,36 @@ void mlp_fit(MLPModel *model, const float *X, const float *y, int n_samples, int
 
         if ((ep + 1) % log_interval == 0 || ep == epochs - 1) {
             float avg_loss = total_loss / n_samples;
-            mp_printf(&mp_plat_print, "Epoch %d/%d - MSE Loss: %.6f\n", ep + 1, epochs, (double)avg_loss);
+            if (model->is_regression) {
+                mp_printf(&mp_plat_print, "Epoch %d/%d - MSE Loss: %.6f\n", ep + 1, epochs, (double)avg_loss);
+            } else {
+                float accuracy = ((float)correct / n_samples) * 100.0f;
+                mp_printf(&mp_plat_print, "Epoch %d/%d - Loss: %.4f - Accuracy: %.1f%%\n",
+                          ep + 1, epochs, (double)avg_loss, (double)accuracy);
+            }
         }
     }
 
     m_del(float, dh, model->hidden_dim);
     m_del(float, dout, model->output_dim);
+}
+
+int mlp_predict(MLPModel *model, const float *x, float *probs) {
+    mlp_forward(model, x);
+
+    int max_idx = 0;
+    float max_p = model->out_act[0];
+
+    for (int k = 0; k < model->output_dim; k++) {
+        if (probs != NULL) {
+            probs[k] = model->out_act[k];
+        }
+        if (model->out_act[k] > max_p) {
+            max_p = model->out_act[k];
+            max_idx = k;
+        }
+    }
+    return max_idx;
 }
 
 void mlp_predict_reg(MLPModel *model, const float *x, float *out) {
