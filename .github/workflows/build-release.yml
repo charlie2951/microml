@@ -43,9 +43,9 @@ jobs:
             ext: bin
             toolchain: esp32
           - port: esp32
-            board: ESP32_GENERIC_S3
-            variant: SPIRAM_OCT
-            ext: bin
+            board: ARDUINO_NANO_ESP32
+            variant: ''
+            ext: uf2
             toolchain: esp32
 
     steps:
