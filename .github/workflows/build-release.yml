@@ -82,9 +82,10 @@ jobs:
       - name: Build mpy-cross
         run: make -C micropython/mpy-cross
 
-      - name: Build Submodules (ESP32)
-        if: matrix.toolchain == 'esp32'
-        run: make -C micropython/ports/esp32 submodules
+     # - name: Build Submodules (ESP32)
+     #   if: matrix.toolchain == 'esp32'
+     #   run:  |
+     #     make -C micropython/ports/esp32 submodules
 
       - name: Build RP2 Firmware
         if: matrix.toolchain == 'rp2'
