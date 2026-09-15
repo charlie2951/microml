@@ -5,9 +5,12 @@
 #include "py/builtin.h"
 #include "microml.h"
 #include "mlp.h"
+#ifndef STATIC
+#define STATIC static
+#endif
 
 // ==========================================
-// 1. MLP CLASSIFIER WRAPPER
+// DEEP MULTI-LAYER PERCEPTRON (MLP) WRAPPER
 // ==========================================
 typedef struct {
     mp_obj_base_t base;
@@ -16,19 +19,35 @@ typedef struct {
 
 const mp_obj_type_t microml_mlp_type;
 
+// Constructor: microml.MLP(layer_sizes, is_regression=False)
 static mp_obj_t mlp_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
-    mp_arg_check_num(n_args, n_kw, 3, 3, false);
+    mp_arg_check_num(n_args, n_kw, 1, 2, false);
 
-    int input_dim = mp_obj_get_int(args[0]);
-    int hidden_dim = mp_obj_get_int(args[1]);
-    int output_dim = mp_obj_get_int(args[2]);
+    size_t num_layers;
+    mp_obj_t *items;
+    mp_obj_get_array(args[0], &num_layers, &items);
+
+    if (num_layers < 2) {
+        mp_raise_ValueError(MP_ERROR_TEXT("MLP requires at least 2 layer dimensions (input & output)"));
+    }
+
+    int *layer_sizes = m_new(int, num_layers);
+    for (size_t i = 0; i < num_layers; i++) {
+        layer_sizes[i] = mp_obj_get_int(items[i]);
+    }
+
+    int is_regression = (n_args >= 2) ? mp_obj_is_true(args[1]) : 0;
 
     mp_obj_mlp_t *self = m_new_obj(mp_obj_mlp_t);
     self->base.type = &microml_mlp_type;
-    mlp_init(&self->model, input_dim, hidden_dim, output_dim, 0); // 0 = Classification
+
+    mlp_init(&self->model, layer_sizes, (int)num_layers, is_regression);
+
+    m_del(int, layer_sizes, num_layers);
     return MP_OBJ_FROM_PTR(self);
 }
 
+// Method: mlp.fit(X, y, epochs=100, lr=0.01, momentum=0.9)
 static mp_obj_t mlp_fit_py(size_t n_args, const mp_obj_t *args) {
     mp_obj_mlp_t *self = MP_OBJ_TO_PTR(args[0]);
 
@@ -40,43 +59,71 @@ static mp_obj_t mlp_fit_py(size_t n_args, const mp_obj_t *args) {
     float lr = (n_args >= 5) ? (float)mp_obj_get_float(args[4]) : 0.01f;
     float momentum = (n_args >= 6) ? (float)mp_obj_get_float(args[5]) : 0.9f;
 
-    int n_samples = buf_y.len / sizeof(int);
+    int input_dim = self->model.layer_sizes[0];
+    int out_dim = self->model.layer_sizes[self->model.num_layers - 1];
 
-    // Cast y to float array temporarily for uniform function call
-    float *y_float = m_new(float, n_samples);
-    int *y_int = (int *)buf_y.buf;
-    for (int i = 0; i < n_samples; i++) y_float[i] = (float)y_int[i];
+    int n_samples;
+    if (self->model.is_regression) {
+        n_samples = buf_y.len / (sizeof(float) * out_dim);
+    } else {
+        n_samples = buf_x.len / (sizeof(float) * input_dim);
+    }
 
-    mlp_fit(&self->model, (float *)buf_x.buf, y_float, n_samples, epochs, lr, momentum);
-
-    m_del(float, y_float, n_samples);
+    mlp_fit(&self->model, (float *)buf_x.buf, (float *)buf_y.buf, n_samples, epochs, lr, momentum);
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mlp_fit_obj, 3, 6, mlp_fit_py);
 
+// Method: mlp.predict(X_sample)
 static mp_obj_t mlp_predict_py(mp_obj_t self_in, mp_obj_t x_in) {
     mp_obj_mlp_t *self = MP_OBJ_TO_PTR(self_in);
     mp_buffer_info_t buf_x;
     mp_get_buffer_raise(x_in, &buf_x, MP_BUFFER_READ);
 
-    float *probs = m_new(float, self->model.output_dim);
-    int pred = mlp_predict(&self->model, (float *)buf_x.buf, probs);
+    int out_dim = self->model.layer_sizes[self->model.num_layers - 1];
 
-    mp_obj_t prob_list = mp_obj_new_list(0, NULL);
-    for (int i = 0; i < self->model.output_dim; i++) {
-        mp_obj_list_append(prob_list, mp_obj_new_float((mp_float_t)probs[i]));
+    if (self->model.is_regression) {
+        float *out_pred = m_new(float, out_dim);
+        mlp_predict_reg(&self->model, (float *)buf_x.buf, out_pred);
+
+        mp_obj_t pred_list = mp_obj_new_list(0, NULL);
+        for (int i = 0; i < out_dim; i++) {
+            mp_obj_list_append(pred_list, mp_obj_new_float((mp_float_t)out_pred[i]));
+        }
+        m_del(float, out_pred, out_dim);
+        return pred_list;
+    } else {
+        float *probs = m_new(float, out_dim);
+        int pred_class = mlp_predict(&self->model, (float *)buf_x.buf, probs);
+        m_del(float, probs, out_dim);
+        return mp_obj_new_int(pred_class);
     }
-
-    mp_obj_t tuple[2] = { mp_obj_new_int(pred), prob_list };
-
-    m_del(float, probs, self->model.output_dim);
-    return mp_obj_new_tuple(2, tuple);
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(mlp_predict_obj, mlp_predict_py);
+
+// Method: mlp.predict_proba(X_sample)
+static mp_obj_t mlp_predict_proba_py(mp_obj_t self_in, mp_obj_t x_in) {
+    mp_obj_mlp_t *self = MP_OBJ_TO_PTR(self_in);
+    mp_buffer_info_t buf_x;
+    mp_get_buffer_raise(x_in, &buf_x, MP_BUFFER_READ);
+
+    int out_dim = self->model.layer_sizes[self->model.num_layers - 1];
+    float *probs = m_new(float, out_dim);
+    mlp_predict(&self->model, (float *)buf_x.buf, probs);
+
+    mp_obj_t prob_list = mp_obj_new_list(0, NULL);
+    for (int i = 0; i < out_dim; i++) {
+        mp_obj_list_append(prob_list, mp_obj_new_float((mp_float_t)probs[i]));
+    }
+    m_del(float, probs, out_dim);
+    return prob_list;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(mlp_predict_proba_obj, mlp_predict_proba_py);
 
 static const mp_rom_map_elem_t mlp_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_fit), MP_ROM_PTR(&mlp_fit_obj) },
     { MP_ROM_QSTR(MP_QSTR_predict), MP_ROM_PTR(&mlp_predict_obj) },
+    { MP_ROM_QSTR(MP_QSTR_predict_proba), MP_ROM_PTR(&mlp_predict_proba_obj) },
 };
 static MP_DEFINE_CONST_DICT(mlp_locals_dict, mlp_locals_dict_table);
 
@@ -89,85 +136,7 @@ MP_DEFINE_CONST_OBJ_TYPE(
 );
 
 // ==========================================
-// 2. MLP REGRESSOR WRAPPER (NEW)
-// ==========================================
-typedef struct {
-    mp_obj_base_t base;
-    MLPModel model;
-} mp_obj_mlp_reg_t;
-
-const mp_obj_type_t microml_mlp_reg_type;
-
-static mp_obj_t mlp_reg_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
-    mp_arg_check_num(n_args, n_kw, 2, 3, false);
-
-    int input_dim = mp_obj_get_int(args[0]);
-    int hidden_dim = mp_obj_get_int(args[1]);
-    int output_dim = (n_args >= 3) ? mp_obj_get_int(args[2]) : 1;
-
-    mp_obj_mlp_reg_t *self = m_new_obj(mp_obj_mlp_reg_t);
-    self->base.type = &microml_mlp_reg_type;
-    mlp_init(&self->model, input_dim, hidden_dim, output_dim, 1); // 1 = Regression
-    return MP_OBJ_FROM_PTR(self);
-}
-
-static mp_obj_t mlp_reg_fit_py(size_t n_args, const mp_obj_t *args) {
-    mp_obj_mlp_reg_t *self = MP_OBJ_TO_PTR(args[0]);
-
-    mp_buffer_info_t buf_x, buf_y;
-    mp_get_buffer_raise(args[1], &buf_x, MP_BUFFER_READ);
-    mp_get_buffer_raise(args[2], &buf_y, MP_BUFFER_READ);
-
-    int epochs = (n_args >= 4) ? mp_obj_get_int(args[3]) : 100;
-    float lr = (n_args >= 5) ? (float)mp_obj_get_float(args[4]) : 0.01f;
-    float momentum = (n_args >= 6) ? (float)mp_obj_get_float(args[5]) : 0.9f;
-
-    int n_samples = buf_y.len / (sizeof(float) * self->model.output_dim);
-
-    mlp_fit(&self->model, (float *)buf_x.buf, (float *)buf_y.buf, n_samples, epochs, lr, momentum);
-    return mp_const_none;
-}
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mlp_reg_fit_obj, 3, 6, mlp_reg_fit_py);
-
-static mp_obj_t mlp_reg_predict_py(mp_obj_t self_in, mp_obj_t x_in) {
-    mp_obj_mlp_reg_t *self = MP_OBJ_TO_PTR(self_in);
-    mp_buffer_info_t buf_x;
-    mp_get_buffer_raise(x_in, &buf_x, MP_BUFFER_READ);
-
-    float *out = m_new(float, self->model.output_dim);
-    mlp_predict_reg(&self->model, (float *)buf_x.buf, out);
-
-    if (self->model.output_dim == 1) {
-        float val = out[0];
-        m_del(float, out, 1);
-        return mp_obj_new_float((mp_float_t)val);
-    }
-
-    mp_obj_t list = mp_obj_new_list(0, NULL);
-    for (int i = 0; i < self->model.output_dim; i++) {
-        mp_obj_list_append(list, mp_obj_new_float((mp_float_t)out[i]));
-    }
-    m_del(float, out, self->model.output_dim);
-    return list;
-}
-static MP_DEFINE_CONST_FUN_OBJ_2(mlp_reg_predict_obj, mlp_reg_predict_py);
-
-static const mp_rom_map_elem_t mlp_reg_locals_dict_table[] = {
-    { MP_ROM_QSTR(MP_QSTR_fit), MP_ROM_PTR(&mlp_reg_fit_obj) },
-    { MP_ROM_QSTR(MP_QSTR_predict), MP_ROM_PTR(&mlp_reg_predict_obj) },
-};
-static MP_DEFINE_CONST_DICT(mlp_reg_locals_dict, mlp_reg_locals_dict_table);
-
-MP_DEFINE_CONST_OBJ_TYPE(
-    microml_mlp_reg_type,
-    MP_QSTR_MLPRegressor,
-    MP_TYPE_FLAG_NONE,
-    make_new, mlp_reg_make_new,
-    locals_dict, &mlp_reg_locals_dict
-);
-
-// ==========================================
-// 3. KNN WRAPPER
+// KNN WRAPPER
 // ==========================================
 typedef struct {
     mp_obj_base_t base;
@@ -218,6 +187,7 @@ static mp_obj_t knn_predict_proba_py(mp_obj_t self_in, mp_obj_t x_in) {
     }
     tuple[1] = prob_list;
 
+    // FIX: Replaced m_free with m_del
     m_del(float, probs, self->model.n_classes);
     return mp_obj_new_tuple(2, tuple);
 }
@@ -238,7 +208,7 @@ MP_DEFINE_CONST_OBJ_TYPE(
 );
 
 // ==========================================
-// 4. DECISION TREE WRAPPER
+// DECISION TREE WRAPPER WITH FILE SAVE/LOAD
 // ==========================================
 typedef struct {
     mp_obj_base_t base;
@@ -285,6 +255,7 @@ static mp_obj_t dt_predict_py(mp_obj_t self_in, mp_obj_t x_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(dt_predict_obj, dt_predict_py);
 
+// File Persistence using mp_builtin_open
 static mp_obj_t dt_save_py(mp_obj_t self_in, mp_obj_t filename_in) {
     mp_obj_dt_t *self = MP_OBJ_TO_PTR(self_in);
 
@@ -312,6 +283,7 @@ static mp_obj_t dt_load_py(mp_obj_t self_in, mp_obj_t filename_in) {
     mp_stream_read_exactly(file, header, sizeof(header), &err);
 
     if (self->model.nodes) {
+        // FIX: Replaced m_free with m_del
         m_del(TreeNode, self->model.nodes, self->model.node_count);
     }
 
@@ -344,7 +316,7 @@ MP_DEFINE_CONST_OBJ_TYPE(
 );
 
 // ==========================================
-// 5. SVM WRAPPER
+// SVM WRAPPER (LINEAR & RBF)
 // ==========================================
 typedef struct {
     mp_obj_base_t base;
@@ -414,7 +386,6 @@ static const mp_rom_map_elem_t microml_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_DecisionTree), MP_ROM_PTR(&microml_dt_type) },
     { MP_ROM_QSTR(MP_QSTR_SVM), MP_ROM_PTR(&microml_svm_type) },
     { MP_ROM_QSTR(MP_QSTR_MLP), MP_ROM_PTR(&microml_mlp_type) },
-    { MP_ROM_QSTR(MP_QSTR_MLPRegressor), MP_ROM_PTR(&microml_mlp_reg_type) },
     { MP_ROM_QSTR(MP_QSTR_KERNEL_LINEAR), MP_ROM_INT(SVM_KERNEL_LINEAR) },
     { MP_ROM_QSTR(MP_QSTR_KERNEL_RBF), MP_ROM_INT(SVM_KERNEL_RBF) },
 };

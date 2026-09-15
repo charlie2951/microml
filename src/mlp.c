@@ -19,91 +19,118 @@ static float rand_uniform_mp(float limit) {
     return norm * 2.0f * limit - limit;
 }
 
-void mlp_init(MLPModel *model, int input_dim, int hidden_dim, int output_dim, int is_regression) {
-    model->input_dim = input_dim;
-    model->hidden_dim = hidden_dim;
-    model->output_dim = output_dim;
+void mlp_init(MLPModel *model, const int *layer_sizes, int num_layers, int is_regression) {
+    model->num_layers = num_layers;
     model->is_regression = is_regression;
 
-    model->w1 = m_new(float, input_dim * hidden_dim);
-    model->b1 = m_new0(float, hidden_dim);
-    model->w2 = m_new(float, hidden_dim * output_dim);
-    model->b2 = m_new0(float, output_dim);
+    model->layer_sizes = m_new(int, num_layers);
+    memcpy(model->layer_sizes, layer_sizes, num_layers * sizeof(int));
 
-    model->vw1 = m_new0(float, input_dim * hidden_dim);
-    model->vb1 = m_new0(float, hidden_dim);
-    model->vw2 = m_new0(float, hidden_dim * output_dim);
-    model->vb2 = m_new0(float, output_dim);
+    int num_weight_matrices = num_layers - 1;
+    model->weights = m_new(float*, num_weight_matrices);
+    model->biases = m_new(float*, num_weight_matrices);
+    model->vw = m_new(float*, num_weight_matrices);
+    model->vb = m_new(float*, num_weight_matrices);
+    model->activations = m_new(float*, num_layers);
 
-    model->h_act = m_new(float, hidden_dim);
-    model->out_act = m_new(float, output_dim);
+    // Allocate Input layer activations (Layer 0)
+    model->activations[0] = m_new(float, layer_sizes[0]);
 
-    float limit1 = sqrtf(6.0f / (input_dim + hidden_dim));
-    for (int i = 0; i < input_dim * hidden_dim; i++) {
-        model->w1[i] = rand_uniform_mp(limit1);
-    }
+    // Allocate and initialize layers 0 to N-1
+    for (int l = 0; l < num_weight_matrices; l++) {
+        int in_dim = layer_sizes[l];
+        int out_dim = layer_sizes[l + 1];
 
-    float limit2 = sqrtf(6.0f / (hidden_dim + output_dim));
-    for (int i = 0; i < hidden_dim * output_dim; i++) {
-        model->w2[i] = rand_uniform_mp(limit2);
+        model->weights[l] = m_new(float, in_dim * out_dim);
+        model->biases[l] = m_new0(float, out_dim);
+        model->vw[l] = m_new0(float, in_dim * out_dim);
+        model->vb[l] = m_new0(float, out_dim);
+        model->activations[l + 1] = m_new(float, out_dim);
+
+        // Xavier Uniform initialization per layer
+        float limit = sqrtf(6.0f / (in_dim + out_dim));
+        for (int i = 0; i < in_dim * out_dim; i++) {
+            model->weights[l][i] = rand_uniform_mp(limit);
+        }
     }
 }
 
 void mlp_free(MLPModel *model) {
-    if (model->w1) m_del(float, model->w1, model->input_dim * model->hidden_dim);
-    if (model->b1) m_del(float, model->b1, model->hidden_dim);
-    if (model->w2) m_del(float, model->w2, model->hidden_dim * model->output_dim);
-    if (model->b2) m_del(float, model->b2, model->output_dim);
+    int num_weight_matrices = model->num_layers - 1;
 
-    if (model->vw1) m_del(float, model->vw1, model->input_dim * model->hidden_dim);
-    if (model->vb1) m_del(float, model->vb1, model->hidden_dim);
-    if (model->vw2) m_del(float, model->vw2, model->hidden_dim * model->output_dim);
-    if (model->vb2) m_del(float, model->vb2, model->output_dim);
+    for (int l = 0; l < num_weight_matrices; l++) {
+        int in_dim = model->layer_sizes[l];
+        int out_dim = model->layer_sizes[l + 1];
 
-    if (model->h_act) m_del(float, model->h_act, model->hidden_dim);
-    if (model->out_act) m_del(float, model->out_act, model->output_dim);
+        if (model->weights[l]) m_del(float, model->weights[l], in_dim * out_dim);
+        if (model->biases[l]) m_del(float, model->biases[l], out_dim);
+        if (model->vw[l]) m_del(float, model->vw[l], in_dim * out_dim);
+        if (model->vb[l]) m_del(float, model->vb[l], out_dim);
+        if (model->activations[l + 1]) m_del(float, model->activations[l + 1], out_dim);
+    }
+
+    if (model->activations[0]) m_del(float, model->activations[0], model->layer_sizes[0]);
+
+    m_del(float*, model->weights, num_weight_matrices);
+    m_del(float*, model->biases, num_weight_matrices);
+    m_del(float*, model->vw, num_weight_matrices);
+    m_del(float*, model->vb, num_weight_matrices);
+    m_del(float*, model->activations, model->num_layers);
+    m_del(int, model->layer_sizes, model->num_layers);
 }
 
 void mlp_forward(MLPModel *model, const float *x) {
-    // Hidden Layer (ReLU)
-    for (int j = 0; j < model->hidden_dim; j++) {
-        float sum = model->b1[j];
-        for (int i = 0; i < model->input_dim; i++) {
-            sum += x[i] * model->w1[i * model->hidden_dim + j];
+    // 1. Copy input vector into Layer 0 activations
+    memcpy(model->activations[0], x, model->layer_sizes[0] * sizeof(float));
+
+    // 2. Propagate through all layers
+    for (int l = 0; l < model->num_layers - 1; l++) {
+        int in_dim = model->layer_sizes[l];
+        int out_dim = model->layer_sizes[l + 1];
+        int is_output_layer = (l == model->num_layers - 2);
+
+        for (int j = 0; j < out_dim; j++) {
+            float sum = model->biases[l][j];
+            for (int i = 0; i < in_dim; i++) {
+                sum += model->activations[l][i] * model->weights[l][i * out_dim + j];
+            }
+            // Hidden Layers use ReLU | Output Layer uses Linear activation
+            model->activations[l + 1][j] = is_output_layer ? sum : (sum > 0.0f ? sum : 0.0f);
         }
-        model->h_act[j] = sum > 0.0f ? sum : 0.0f;
     }
 
-    // Output Layer (Linear)
-    for (int k = 0; k < model->output_dim; k++) {
-        float sum = model->b2[k];
-        for (int j = 0; j < model->hidden_dim; j++) {
-            sum += model->h_act[j] * model->w2[j * model->output_dim + k];
-        }
-        model->out_act[k] = sum;
-    }
-
-    // Apply Softmax only for classification
+    // 3. Apply Softmax if Classification Mode
     if (!model->is_regression) {
+        int out_layer = model->num_layers - 1;
+        int out_dim = model->layer_sizes[out_layer];
+
         float max_val = -1e9f;
-        for (int k = 0; k < model->output_dim; k++) {
-            if (model->out_act[k] > max_val) max_val = model->out_act[k];
+        for (int k = 0; k < out_dim; k++) {
+            if (model->activations[out_layer][k] > max_val) {
+                max_val = model->activations[out_layer][k];
+            }
         }
 
         float exp_sum = 0.0f;
-        for (int k = 0; k < model->output_dim; k++) {
-            model->out_act[k] = expf(model->out_act[k] - max_val);
-            exp_sum += model->out_act[k];
+        for (int k = 0; k < out_dim; k++) {
+            model->activations[out_layer][k] = expf(model->activations[out_layer][k] - max_val);
+            exp_sum += model->activations[out_layer][k];
         }
-        for (int k = 0; k < model->output_dim; k++) {
-            model->out_act[k] /= exp_sum;
+        for (int k = 0; k < out_dim; k++) {
+            model->activations[out_layer][k] /= exp_sum;
         }
     }
 }
 
 void mlp_fit(MLPModel *model, const float *X, const float *y, int n_samples, int epochs, float lr, float momentum) {
-    float *dh = m_new(float, model->hidden_dim);
-    float *dout = m_new(float, model->output_dim);
+    int last_layer = model->num_layers - 1;
+    int out_dim = model->layer_sizes[last_layer];
+
+    // Allocate gradient delta buffers for each layer dynamically
+    float **deltas = m_new(float*, model->num_layers);
+    for (int l = 1; l < model->num_layers; l++) {
+        deltas[l] = m_new(float, model->layer_sizes[l]);
+    }
 
     int log_interval = epochs >= 10 ? epochs / 10 : 1;
 
@@ -112,76 +139,74 @@ void mlp_fit(MLPModel *model, const float *X, const float *y, int n_samples, int
         int correct = 0;
 
         for (int s = 0; s < n_samples; s++) {
-            const float *x = &X[s * model->input_dim];
+            const float *x = &X[s * model->layer_sizes[0]];
 
+            // 1. Forward Pass
             mlp_forward(model, x);
 
+            // 2. Output Layer Error Gradient calculation
             if (model->is_regression) {
-                // MSE Loss: gradient = 2 * (pred - target)
-                const float *target = &y[s * model->output_dim];
-                for (int k = 0; k < model->output_dim; k++) {
-                    float diff = model->out_act[k] - target[k];
-                    dout[k] = 2.0f * diff;
+                const float *target = &y[s * out_dim];
+                for (int k = 0; k < out_dim; k++) {
+                    float diff = model->activations[last_layer][k] - target[k];
+                    deltas[last_layer][k] = 2.0f * diff; // Gradient of MSE
                     total_loss += diff * diff;
                 }
             } else {
-                // Cross-Entropy Loss
                 int label = (int)y[s];
-                for (int k = 0; k < model->output_dim; k++) {
-                    dout[k] = model->out_act[k] - (k == label ? 1.0f : 0.0f);
+                for (int k = 0; k < out_dim; k++) {
+                    deltas[last_layer][k] = model->activations[last_layer][k] - (k == label ? 1.0f : 0.0f);
                 }
-                float p_correct = model->out_act[label] > 1e-7f ? model->out_act[label] : 1e-7f;
+                float p_correct = model->activations[last_layer][label] > 1e-7f ? model->activations[last_layer][label] : 1e-7f;
                 total_loss += -logf(p_correct);
 
                 int pred_class = 0;
-                float max_p = model->out_act[0];
-                for (int k = 1; k < model->output_dim; k++) {
-                    if (model->out_act[k] > max_p) {
-                        max_p = model->out_act[k];
+                float max_p = model->activations[last_layer][0];
+                for (int k = 1; k < out_dim; k++) {
+                    if (model->activations[last_layer][k] > max_p) {
+                        max_p = model->activations[last_layer][k];
                         pred_class = k;
                     }
                 }
                 if (pred_class == label) correct++;
             }
 
-            // Hidden gradient
-            for (int j = 0; j < model->hidden_dim; j++) {
-                float sum = 0.0f;
-                for (int k = 0; k < model->output_dim; k++) {
-                    sum += dout[k] * model->w2[j * model->output_dim + k];
+            // 3. Backpropagate error gradients through all hidden layers (Reverse Loop)
+            for (int l = last_layer - 1; l >= 1; l--) {
+                int current_dim = model->layer_sizes[l];
+                int next_dim = model->layer_sizes[l + 1];
+
+                for (int j = 0; j < current_dim; j++) {
+                    float sum = 0.0f;
+                    for (int k = 0; k < next_dim; k++) {
+                        sum += deltas[l + 1][k] * model->weights[l][j * next_dim + k];
+                    }
+                    // Derivative of ReLU
+                    deltas[l][j] = (model->activations[l][j] > 0.0f) ? sum : 0.0f;
                 }
-                dh[j] = (model->h_act[j] > 0.0f) ? sum : 0.0f;
             }
 
-            // Update W2 & B2
-            for (int j = 0; j < model->hidden_dim; j++) {
-                for (int k = 0; k < model->output_dim; k++) {
-                    int idx = j * model->output_dim + k;
-                    float grad = dout[k] * model->h_act[j];
-                    model->vw2[idx] = momentum * model->vw2[idx] - lr * grad;
-                    model->w2[idx] += model->vw2[idx];
-                }
-            }
-            for (int k = 0; k < model->output_dim; k++) {
-                model->vb2[k] = momentum * model->vb2[k] - lr * dout[k];
-                model->b2[k] += model->vb2[k];
-            }
+            // 4. Update Weights and Biases using SGD with Momentum
+            for (int l = 0; l < model->num_layers - 1; l++) {
+                int in_dim = model->layer_sizes[l];
+                int layer_out_dim = model->layer_sizes[l + 1];
 
-            // Update W1 & B1
-            for (int i = 0; i < model->input_dim; i++) {
-                for (int j = 0; j < model->hidden_dim; j++) {
-                    int idx = i * model->hidden_dim + j;
-                    float grad = dh[j] * x[i];
-                    model->vw1[idx] = momentum * model->vw1[idx] - lr * grad;
-                    model->w1[idx] += model->vw1[idx];
+                for (int i = 0; i < in_dim; i++) {
+                    for (int j = 0; j < layer_out_dim; j++) {
+                        int idx = i * layer_out_dim + j;
+                        float grad = deltas[l + 1][j] * model->activations[l][i];
+                        model->vw[l][idx] = momentum * model->vw[l][idx] - lr * grad;
+                        model->weights[l][idx] += model->vw[l][idx];
+                    }
                 }
-            }
-            for (int j = 0; j < model->hidden_dim; j++) {
-                model->vb1[j] = momentum * model->vb1[j] - lr * dh[j];
-                model->b1[j] += model->vb1[j];
+                for (int j = 0; j < layer_out_dim; j++) {
+                    model->vb[l][j] = momentum * model->vb[l][j] - lr * deltas[l + 1][j];
+                    model->biases[l][j] += model->vb[l][j];
+                }
             }
         }
 
+        // Logging
         if ((ep + 1) % log_interval == 0 || ep == epochs - 1) {
             float avg_loss = total_loss / n_samples;
             if (model->is_regression) {
@@ -194,22 +219,27 @@ void mlp_fit(MLPModel *model, const float *X, const float *y, int n_samples, int
         }
     }
 
-    m_del(float, dh, model->hidden_dim);
-    m_del(float, dout, model->output_dim);
+    // Clean up gradient delta buffers
+    for (int l = 1; l < model->num_layers; l++) {
+        m_del(float, deltas[l], model->layer_sizes[l]);
+    }
+    m_del(float*, deltas, model->num_layers);
 }
 
 int mlp_predict(MLPModel *model, const float *x, float *probs) {
     mlp_forward(model, x);
 
+    int out_layer = model->num_layers - 1;
+    int out_dim = model->layer_sizes[out_layer];
     int max_idx = 0;
-    float max_p = model->out_act[0];
+    float max_p = model->activations[out_layer][0];
 
-    for (int k = 0; k < model->output_dim; k++) {
+    for (int k = 0; k < out_dim; k++) {
         if (probs != NULL) {
-            probs[k] = model->out_act[k];
+            probs[k] = model->activations[out_layer][k];
         }
-        if (model->out_act[k] > max_p) {
-            max_p = model->out_act[k];
+        if (model->activations[out_layer][k] > max_p) {
+            max_p = model->activations[out_layer][k];
             max_idx = k;
         }
     }
@@ -218,7 +248,10 @@ int mlp_predict(MLPModel *model, const float *x, float *probs) {
 
 void mlp_predict_reg(MLPModel *model, const float *x, float *out) {
     mlp_forward(model, x);
-    for (int k = 0; k < model->output_dim; k++) {
-        out[k] = model->out_act[k];
+    int out_layer = model->num_layers - 1;
+    int out_dim = model->layer_sizes[out_layer];
+
+    for (int k = 0; k < out_dim; k++) {
+        out[k] = model->activations[out_layer][k];
     }
 }
