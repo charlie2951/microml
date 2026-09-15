@@ -21,19 +21,18 @@ X_train = array.array("f", X_raw)
 y_train = array.array("f", y_raw)
 
 # 2. Instantiate MLPRegressor
-# Architecture: 1 Input -> 8 Hidden Neurons -> 1 Output
-mlp_reg = microml.MLPRegressor(1, 16, 1)
+# Architecture: 1 Input -> 16 Hidden Neurons -> 1 Output
+mlp_reg = microml.MLP([1, 16, 8, 1], True)
 
 # 3. Train the Model
-# Parameters: fit(X, y, epochs, learning_rate, momentum)
 print("Training MLP Regressor on Sine Wave...")
 mlp_reg.fit(X_train, y_train, 5000, 0.001, 0.9)
 
 # 4. Evaluate & Predict
 print("\nPredictions vs Actual:")
-print("----------------------------")
-print("  x   |  Predicted  |   Actual   | Error")
-print("----------------------------")
+print("---------------------------------------")
+print("  x    |  Predicted  |   Actual   | Error")
+print("---------------------------------------")
 
 # Test 5 sample points
 test_points = [-math.pi / 2, -math.pi / 4, 0.0, math.pi / 4, math.pi / 2]
@@ -41,9 +40,11 @@ test_points = [-math.pi / 2, -math.pi / 4, 0.0, math.pi / 4, math.pi / 2]
 for x_test in test_points:
     x_buf = array.array("f", [x_test])
 
-    # Model outputs a single float value directly
-    pred = mlp_reg.predict(x_buf)
+    # Unpack predicted float from returned list [pred]
+    pred = mlp_reg.predict(x_buf)[0]
     actual = math.sin(x_test)
     error = abs(pred - actual)
 
-    print(f"{x_test: .2f} |  {pred: .4f}    |  {actual: .4f}  | {error:.4f}")
+    print("{: .2f} |  {: .4f}    |  {: .4f}  | {:.4f}".format(
+        x_test, pred, actual, error
+    ))
