@@ -103,7 +103,7 @@ Upon successful build, the `firmware.bin` (also `firmware.uf2` for rp2 port) wil
 
 ## Python API Reference
 1. Multi-Layer Perceptron Regressor `microml.MLP` Constructor: <p>
-- `microml.MLP(input_dim, hidden_dim, output_dim)`: Allocates model weights and momentum buffers on the MicroPython heap with Xavier uniform random initialization.
+- `microml.MLP([input_dim, hidden_dim1,hidden_dim2..., output_dim], True/False)`: Allocates model weights and momentum buffers on the MicroPython heap with Xavier uniform random initialization. If True-> Regression, False-> classification
 - `fit(X, y, epochs=100, lr=0.01, momentum=0.9)`:Trains the neural network using SGD with momentum and MSE loss.
 - `X: array.array('f')` containing flattened float inputs (length: $N \times input~dim$).
 - `y: array.array('f')` containing flattened float target values (length: $N \times output~dim$).
