@@ -39,12 +39,12 @@ jobs:
             toolchain: rp2
           - port: esp32
             board: ESP32_GENERIC
-            variant: SPIRAM          # Example ESP32 variant
+            variant: SPIRAM
             ext: bin
             toolchain: esp32
           - port: esp32
             board: ESP32_GENERIC_S3
-            variant: OCT_SPIRAM      # Example ESP32-S3 variant
+            variant: OCT_SPIRAM
             ext: bin
             toolchain: esp32
 
@@ -66,26 +66,26 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi build-essential cmake python3 python3-venv ninja-build
 
-      # --- ESP32 Toolchain Setup (ESP-IDF v5.5.1 from Git) ---
       - name: Setup ESP-IDF v5.5.1
         if: matrix.toolchain == 'esp32'
         run: |
-          # 1. Clone ESP-IDF at specific tag v5.5.1 into the expected location
-          git clone --recursive -b v5.5.1 --depth 1 https://github.com/espressif/esp-idf.git
-          cd esp-idf
-          git checkout v5.5.1
-          git submodule update --init --recursive
-          ./install.sh
-          source export.sh
+          git clone --recursive -b v5.5.1 --depth 1 https://github.com/espressif/esp-idf.git ${{ github.workspace }}/esp-idf
+          cd ${{ github.workspace }}/esp-idf
+          ./install.sh esp32,esp32s3
+          
+          # Export ESP-IDF variables to GITHUB_ENV so all later steps have access to idf.py
+          echo "IDF_PATH=${{ github.workspace }}/esp-idf" >> $GITHUB_ENV
+          cd ${{ github.workspace }}/esp-idf && . ./export.sh
+          echo "PATH=$PATH" >> $GITHUB_ENV
 
       # --- Build Steps ---
       - name: Build mpy-cross
         run: make -C micropython/mpy-cross
 
-     # - name: Build Submodules (ESP32)
-     #   if: matrix.toolchain == 'esp32'
-     #   run:  |
-     #     make -C micropython/ports/esp32 submodules
+      - name: Build Submodules (ESP32)
+        if: matrix.toolchain == 'esp32'
+        run: |
+          make -C micropython/ports/esp32 submodules
 
       - name: Build RP2 Firmware
         if: matrix.toolchain == 'rp2'
@@ -97,7 +97,6 @@ jobs:
       - name: Build ESP32 Firmware
         if: matrix.toolchain == 'esp32'
         run: |
-          # source micropython/ports/esp32/esp-idf/export.sh
           make -C micropython/ports/esp32 \
             BOARD=${{ matrix.board }} \
             ${{ matrix.variant != '' && format('BOARD_VARIANT={0}', matrix.variant) || '' }} \
@@ -113,7 +112,6 @@ jobs:
           EXT="${{ matrix.ext }}"
           VERSION="${{ inputs.release_tag || 'v1.0.0' }}"
 
-          # Append variant to file name if present
           if [ -n "$VARIANT" ]; then
             TARGET_IDENTIFIER="${BOARD_NAME}_${VARIANT}"
           else
@@ -125,7 +123,6 @@ jobs:
           if [ "$PORT" = "rp2" ]; then
             cp micropython/ports/rp2/build-${BOARD_NAME}/firmware.${EXT} dist/${OUTPUT_NAME}
           elif [ "$PORT" = "esp32" ]; then
-            # Build path includes variant folder if specified
             BUILD_DIR="micropython/ports/esp32/build-${BOARD_NAME}"
             if [ -n "$VARIANT" ]; then
               BUILD_DIR="${BUILD_DIR}-${VARIANT}"
