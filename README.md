@@ -40,7 +40,8 @@ microml/
        ├── micropython.mk  # Makefile configuration
        └── CMakeLists.txt  # CMake configuration
 ```
-
+## Pre-compiled firmware
+Pre-built firmware for some ports is available on `**release**`. Note: Not all firmwares are tested on hardware.
 
 ## Build & Compilation Guide
 1. Typical Build System Setup on an Ubuntu system (common for all ports) <p>
