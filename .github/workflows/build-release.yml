@@ -1,0 +1,153 @@
+name: Build MicroPython Firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Create GitHub Release for this manual run?'
+        type: boolean
+        default: false
+      release_tag:
+        description: 'Release Tag (Required if Create Release is true)'
+        type: string
+        default: 'v1.0.0'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - port: rp2
+            board: RPI_PICO
+            variant: ''
+            ext: uf2
+            toolchain: rp2
+          - port: rp2
+            board: RPI_PICO_W
+            variant: ''
+            ext: uf2
+            toolchain: rp2
+          - port: rp2
+            board: ARDUINO_NANO_RP2040_CONNECT
+            variant: ''
+            ext: uf2
+            toolchain: rp2
+          - port: esp32
+            board: ESP32_GENERIC
+            variant: SPIRAM          # Example ESP32 variant
+            ext: bin
+            toolchain: esp32
+          - port: esp32
+            board: ESP32_GENERIC_S3
+            variant: OCT_SPIRAM      # Example ESP32-S3 variant
+            ext: bin
+            toolchain: esp32
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Checkout MicroPython
+        uses: actions/checkout@v4
+        with:
+          repository: micropython/micropython
+          path: micropython
+          submodules: recursive
+
+      # --- Toolchain Setup ---
+      - name: Install RP2 Dependencies
+        if: matrix.toolchain == 'rp2'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi build-essential cmake python3
+
+      - name: Setup ESP-IDF
+        if: matrix.toolchain == 'esp32'
+        run: |
+          cd micropython/ports/esp32
+          bash ./makeidf.sh -s
+
+      # --- Build Steps ---
+      - name: Build mpy-cross
+        run: make -C micropython/mpy-cross
+
+      - name: Build Submodules (ESP32)
+        if: matrix.toolchain == 'esp32'
+        run: make -C micropython/ports/esp32 submodules
+
+      - name: Build RP2 Firmware
+        if: matrix.toolchain == 'rp2'
+        run: |
+          make -C micropython/ports/rp2 \
+            BOARD=${{ matrix.board }} \
+            USER_C_MODULES=${{ github.workspace }}/src
+
+      - name: Build ESP32 Firmware
+        if: matrix.toolchain == 'esp32'
+        run: |
+          source micropython/ports/esp32/esp-idf/export.sh
+          make -C micropython/ports/esp32 \
+            BOARD=${{ matrix.board }} \
+            ${{ matrix.variant != '' && format('BOARD_VARIANT={0}', matrix.variant) || '' }} \
+            USER_C_MODULES=${{ github.workspace }}/src
+
+      # --- Package Artifacts ---
+      - name: Prepare Binary Output
+        run: |
+          mkdir -p dist
+          BOARD_NAME="${{ matrix.board }}"
+          VARIANT="${{ matrix.variant }}"
+          PORT="${{ matrix.port }}"
+          EXT="${{ matrix.ext }}"
+          VERSION="${{ inputs.release_tag || 'v1.0.0' }}"
+
+          # Append variant to file name if present
+          if [ -n "$VARIANT" ]; then
+            TARGET_IDENTIFIER="${BOARD_NAME}_${VARIANT}"
+          else
+            TARGET_IDENTIFIER="${BOARD_NAME}"
+          fi
+
+          OUTPUT_NAME="microml_${TARGET_IDENTIFIER}_${VERSION}.${EXT}"
+
+          if [ "$PORT" = "rp2" ]; then
+            cp micropython/ports/rp2/build-${BOARD_NAME}/firmware.${EXT} dist/${OUTPUT_NAME}
+          elif [ "$PORT" = "esp32" ]; then
+            # Build path includes variant folder if specified
+            BUILD_DIR="micropython/ports/esp32/build-${BOARD_NAME}"
+            if [ -n "$VARIANT" ]; then
+              BUILD_DIR="${BUILD_DIR}-${VARIANT}"
+            fi
+            cp ${BUILD_DIR}/firmware.bin dist/${OUTPUT_NAME}
+          fi
+
+      - name: Upload Workspace Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.board }}${{ matrix.variant && format('-{0}', matrix.variant) || '' }}-firmware
+          path: dist/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: inputs.create_release == true
+    permissions:
+      contents: write
+    steps:
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-files
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          files: release-files/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
