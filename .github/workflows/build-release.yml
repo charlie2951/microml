@@ -44,7 +44,7 @@ jobs:
             toolchain: esp32
           - port: esp32
             board: ESP32_GENERIC_S3
-            variant: OCT_SPIRAM
+            variant: SPIRAM_OCT
             ext: bin
             toolchain: esp32
 
