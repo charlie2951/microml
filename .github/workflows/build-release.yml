@@ -64,13 +64,19 @@ jobs:
         if: matrix.toolchain == 'rp2'
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi build-essential cmake python3
+          sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi build-essential cmake python3 python3-venv ninja-build
 
-      - name: Setup ESP-IDF
+      # --- ESP32 Toolchain Setup (ESP-IDF v5.5.1 from Git) ---
+      - name: Setup ESP-IDF v5.5.1
         if: matrix.toolchain == 'esp32'
         run: |
-          cd micropython/ports/esp32
-          bash ./makeidf.sh -s
+          # 1. Clone ESP-IDF at specific tag v5.5.1 into the expected location
+          git clone --recursive -b v5.5.1 --depth 1 https://github.com/espressif/esp-idf.git
+          cd esp-idf
+          git checkout v5.5.1
+          git submodule update --init --recursive
+          ./install.sh
+          source export.sh
 
       # --- Build Steps ---
       - name: Build mpy-cross
