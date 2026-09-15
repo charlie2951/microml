@@ -96,7 +96,7 @@ jobs:
       - name: Build ESP32 Firmware
         if: matrix.toolchain == 'esp32'
         run: |
-          source micropython/ports/esp32/esp-idf/export.sh
+          # source micropython/ports/esp32/esp-idf/export.sh
           make -C micropython/ports/esp32 \
             BOARD=${{ matrix.board }} \
             ${{ matrix.variant != '' && format('BOARD_VARIANT={0}', matrix.variant) || '' }} \
