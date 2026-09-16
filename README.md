@@ -9,6 +9,9 @@ It features classical ML algorithms as well as an optimized **Multi-Layer Percep
 
 ---
 
+> [!NOTE]
+> From releases V2.0.0, `ulab` (NumPy-style package for Micropython) is also included with firmware to make array operations easier. For more details about **`ulab`**, see [here](https://micropython-ulab.readthedocs.io/en/latest)
+
 ## Features
 
 * **Multi-Layer Perceptron (MLP):**
@@ -60,6 +63,7 @@ Pre-built firmware for some ports is available on **`release`** . Note: Not all 
     cd test_build
     git clone https://github.com/charlie2951/microml.git
     git clone https://github.com/micropython/micropython.git
+    git clone https://github.com/v923z/micropython-ulab.git
     cd micropython
     git submodule update --init
     make -C mpy-cross
@@ -90,13 +94,13 @@ Go back to your created build directory and install toolchain<p>
   ```
   cd ports/esp32
   make submodules
-  make BOARD=ESP32_GENERIC BOARD_VARIANT=SPIRAM  USER_C_MODULES=../../../../microml/src/  #Find board name in ./boards
+  make BOARD=ESP32_GENERIC BOARD_VARIANT=SPIRAM  USER_C_MODULES=../../../../microml/  #Find board name in ./boards
   ```
 For `rp2` boards<p>
 ```
 cd ports/rp2
 make submodules
-make BOARD=RPI_PICO  USER_C_MODULES=../../../../microml/src/  #Find board name in ./boards
+make BOARD=RPI_PICO  USER_C_MODULES=../../../../microml/  #Find board name in ./boards
 ```
 Upon successful build, the `firmware.bin` (also `firmware.uf2` for rp2 port) will be available inside `/ports/esp32/build_board_dir` or `/ports/rp2/build_board_dir`
 
