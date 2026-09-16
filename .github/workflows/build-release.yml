@@ -99,7 +99,7 @@ jobs:
         run: |
           make -C micropython/ports/rp2 \
             BOARD=${{ matrix.board }} \
-            USER_C_MODULES=${{ github.workspace }}
+            USER_C_MODULES=${{ github.workspace }}/micropython.cmake
 
       - name: Build ESP32 Firmware
         if: matrix.toolchain == 'esp32'
@@ -107,7 +107,7 @@ jobs:
           make -C micropython/ports/esp32 \
             BOARD=${{ matrix.board }} \
             ${{ matrix.variant != '' && format('BOARD_VARIANT={0}', matrix.variant) || '' }} \
-            USER_C_MODULES=${{ github.workspace }}
+            USER_C_MODULES=${{ github.workspace }}/micropython.cmake
 
       # --- Package Artifacts ---
       - name: Prepare Binary Output
