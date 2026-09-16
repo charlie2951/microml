@@ -47,17 +47,14 @@ sudo apt-get install -y git wget make libncurses-dev flex bison gperf python3 \
 
 # 2. Workspace Setup
 echo "==> Setting up workspace..."
-mkdir -p microml
-cd microml
 ROOT_DIR=$(pwd)
 
-# Clone microML, ulab, and MicroPython directly inside microml/
-[ ! -d "microml" ] && git clone https://github.com/charlie2951/microml.git
+# Clone ulab, and MicroPython directly inside microml/
 [ ! -d "micropython-ulab" ] && git clone https://github.com/v923z/micropython-ulab.git
 [ ! -d "micropython" ] && git clone https://github.com/micropython/micropython.git
 
 # Set absolute path to microml module to avoid relative path errors inside ports/
-USER_MODULES_DIR="${ROOT_DIR}/microml"
+USER_MODULES_DIR="${ROOT_DIR}"
 MICROPYTHON_DIR="${ROOT_DIR}/micropython"
 
 # Build mpy-cross
@@ -130,4 +127,4 @@ else
     exit 1
 fi
 
-echo "==> Build complete!"
+echo "==> Build complete! Find your firmware (firmware.uf2 or rp2, .bin for esp32 and .exe for unix) inside /ports/<portname>/build_<board_name_variant>/ directory"
