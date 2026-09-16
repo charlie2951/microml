@@ -59,6 +59,13 @@ jobs:
           path: micropython
           submodules: recursive
 
+      - name: Checkout ulab
+        uses: actions/checkout@v4
+        with:
+          repository: v923z/micropython-ulab
+          path: micropython-ulab
+          submodules: recursive
+
       # --- Toolchain Setup ---
       - name: Install RP2 Dependencies
         if: matrix.toolchain == 'rp2'
@@ -92,7 +99,7 @@ jobs:
         run: |
           make -C micropython/ports/rp2 \
             BOARD=${{ matrix.board }} \
-            USER_C_MODULES=${{ github.workspace }}/src
+            USER_C_MODULES="${{ github.workspace }}/src ${{ github.workspace }}/micropython-ulab/code/micropython.cmake"
 
       - name: Build ESP32 Firmware
         if: matrix.toolchain == 'esp32'
@@ -100,7 +107,7 @@ jobs:
           make -C micropython/ports/esp32 \
             BOARD=${{ matrix.board }} \
             ${{ matrix.variant != '' && format('BOARD_VARIANT={0}', matrix.variant) || '' }} \
-            USER_C_MODULES=${{ github.workspace }}/src
+            USER_C_MODULES="${{ github.workspace }}/src ${{ github.workspace }}/micropython-ulab/code/micropython.cmake"
 
       # --- Package Artifacts ---
       - name: Prepare Binary Output
