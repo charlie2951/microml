@@ -10,7 +10,7 @@ on:
       release_tag:
         description: 'Release Tag (Required if Create Release is true)'
         type: string
-        default: 'v1.0.0'
+        default: 'v2.0.0'
 
 jobs:
   build:
@@ -99,7 +99,7 @@ jobs:
         run: |
           make -C micropython/ports/rp2 \
             BOARD=${{ matrix.board }} \
-            USER_C_MODULES="${{ github.workspace }}/src ${{ github.workspace }}/micropython-ulab/code/micropython.cmake"
+            USER_C_MODULES=${{ github.workspace }}
 
       - name: Build ESP32 Firmware
         if: matrix.toolchain == 'esp32'
@@ -107,7 +107,7 @@ jobs:
           make -C micropython/ports/esp32 \
             BOARD=${{ matrix.board }} \
             ${{ matrix.variant != '' && format('BOARD_VARIANT={0}', matrix.variant) || '' }} \
-            USER_C_MODULES="${{ github.workspace }}/src ${{ github.workspace }}/micropython-ulab/code/micropython.cmake"
+            USER_C_MODULES=${{ github.workspace }}
 
       # --- Package Artifacts ---
       - name: Prepare Binary Output
@@ -117,7 +117,7 @@ jobs:
           VARIANT="${{ matrix.variant }}"
           PORT="${{ matrix.port }}"
           EXT="${{ matrix.ext }}"
-          VERSION="${{ inputs.release_tag || 'v1.0.0' }}"
+          VERSION="${{ inputs.release_tag || 'v2.0.0' }}"
 
           if [ -n "$VARIANT" ]; then
             TARGET_IDENTIFIER="${BOARD_NAME}_${VARIANT}"
