@@ -45,7 +45,7 @@ microml/
        └── CMakeLists.txt  # CMake configuration
 ```
 ## Pre-compiled firmware
-Pre-built firmware for some ports is available on **`release`** . Note: Not all firmwares are tested on hardware.
+Pre-built firmware for some ports is available on [**release**](https://github.com/charlie2951/microml/releases). Note: Not all firmwares are tested on hardware.
 
 ## Build & Compilation Guide
 1. Typical Build System Setup on an Ubuntu system (common for all ports) <p>
