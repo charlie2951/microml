@@ -94,13 +94,13 @@ Go back to your created build directory and install toolchain<p>
   ```
   cd ports/esp32
   make submodules
-  make BOARD=ESP32_GENERIC BOARD_VARIANT=SPIRAM  USER_C_MODULES=../../../../microml/  #Find board name in ./boards
+  make BOARD=ESP32_GENERIC BOARD_VARIANT=SPIRAM  USER_C_MODULES=/path/to/microml/  #Find board name in ./boards
   ```
 For `rp2` boards<p>
 ```
 cd ports/rp2
 make submodules
-make BOARD=RPI_PICO  USER_C_MODULES=../../../../microml/  #Find board name in ./boards
+make BOARD=RPI_PICO  USER_C_MODULES=/path/to/microml/  #Find board name in ./boards
 ```
 Upon successful build, the `firmware.bin` (also `firmware.uf2` for rp2 port) will be available inside `/ports/esp32/build_board_dir` or `/ports/rp2/build_board_dir`
 
