@@ -24,6 +24,7 @@ It features classical ML algorithms as well as an optimized **Multi-Layer Percep
   * **Decision Tree** with Gini impurity splitting and binary `save`/`load` file serialization.
   * **Support Vector Machine (SVM)** supporting both Linear and Radial Basis Function (RBF) kernels.
 * **Embedded Resource-Friendly:**
+  * Support NumPy-like array operations using `ulab` (available from v2.0.0 firmware)
   * Zero dynamic memory fragmentation via MicroPython GC heap routines (`m_new`, `m_free`).
   * Direct buffer protocol execution on native Python `array.array('f')` and `array.array('i')` data types without extra memory copying.
 
