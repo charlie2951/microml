@@ -100,11 +100,19 @@ Go back to your created build directory and install toolchain<p>
 For `rp2` boards<p>
 ```
 cd ports/rp2
+make clean
 make submodules
 make BOARD=RPI_PICO  USER_C_MODULES=/path/to/microml/  #Find board name in ./boards
 ```
 Upon successful build, the `firmware.bin` (also `firmware.uf2` for rp2 port) will be available inside `/ports/esp32/build_board_dir` or `/ports/rp2/build_board_dir`
 
+For `Unix` port<p>
+```
+cd ports/unix
+make clean
+make submodules
+make USER_C_MODULES="/path/to/microml/src /path/to/micropython-ulab/code/ FROZEN_MANIFEST="/path/to/microml/manifest.py"  
+```
 
 ## Python API Reference
 1. Multi-Layer Perceptron Regressor `microml.MLP` Constructor: <p>
