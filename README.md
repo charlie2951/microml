@@ -11,11 +11,15 @@ It features classical ML algorithms as well as an optimized **Multi-Layer Percep
 
 > [!NOTE]
 > From releases V2.0.0, `ulab` (NumPy-style package for Micropython) is also included with firmware to make array operations easier. For more details about **`ulab`**, see [here](https://micropython-ulab.readthedocs.io/en/latest)
+> New Features available from V2.0.0:<p>
+> * `csvwrite()` and `csvread()` for working with csv files<p>
+> * classification report and confusion matrix print<p>
+> * `StandardScaler` and `MinMaxScaler` for preprocessing <p>
 
 ## Features
 
 * **Multi-Layer Perceptron (MLP):**
-  * Flexible 3-layer architecture (Input $\to$ Hidden $\to$ Output).
+  * Flexible multi-layer architecture (Input $\to$ Hidden(s) $\to$ Output).
   * ReLU activation for hidden layers and Linear activation for continuous output regression.
   * Backpropagation engine powered by SGD with momentum acceleration.
   * Real-time training loss logging outputted directly to the MicroPython REPL using `mp_printf`.
@@ -27,6 +31,7 @@ It features classical ML algorithms as well as an optimized **Multi-Layer Percep
   * Support NumPy-like array operations using `ulab` (available from v2.0.0 firmware)
   * Zero dynamic memory fragmentation via MicroPython GC heap routines (`m_new`, `m_free`).
   * Direct buffer protocol execution on native Python `array.array('f')` and `array.array('i')` data types without extra memory copying.
+  * Also supports ulab's `ndarray`
 
 ---
 
@@ -35,14 +40,21 @@ It features classical ML algorithms as well as an optimized **Multi-Layer Percep
 ```text
 microml/
 ├── examples/       # MicroPython bindings & C-module wrappers
-├── firmware/       # pre-built firmware for some port
-├── src/           # C-module wrappers
+├── firmware/       # pre-built firmware for some port(not updated, download from release)
+├── manifest.py     # Manifest file for py module compilation
+├── build.sh        # custom build script for Ubuntu22.04 Python 3.10
+├── src/           # C-module and python wrappers
        ├──microml.c       # MicroPython bindings & C-module wrappers
+       ├──microml.py       # MicroPython python module bindings 
        ├── microml.h       # Headers for KNN, DecisionTree, and SVM implementations
        ├── mlp.c           # MLP Forward/Backward propagation engine
        ├── mlp.h           # MLP model definitions and memory interfaces
-       ├── micropython.mk  # Makefile configuration
-       └── CMakeLists.txt  # CMake configuration
+       ├── micropython.cmake  # CMake configuration
+       ├── microml  # python module binding
+           ├── __init__.py
+           ├── metrics.py
+           ├── utils.py
+           ├── preprocessing.py
 ```
 ## Pre-compiled firmware
 Pre-built firmware for some ports is available on [**release**](https://github.com/charlie2951/microml/releases). Note: Not all firmwares are tested on hardware.
