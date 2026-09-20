@@ -99,7 +99,8 @@ jobs:
         run: |
           make -C micropython/ports/rp2 \
             BOARD=${{ matrix.board }} \
-            USER_C_MODULES=${{ github.workspace }}/micropython.cmake
+            USER_C_MODULES=${{ github.workspace }}/micropython.cmake \
+            FROZEN_MANIFEST=${{ github.workspace }}/microml/manifest.py
 
       - name: Build ESP32 Firmware
         if: matrix.toolchain == 'esp32'
