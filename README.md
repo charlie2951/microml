@@ -127,7 +127,7 @@ make USER_C_MODULES="/path/to/microml/src /path/to/micropython-ulab/code/ FROZEN
 ```
 Now go to `/build-standard` and run `./micropython` in your shell.
 
-## Python API Reference
+## Python API Reference (see examples for working demo)
 1. Multi-Layer Perceptron Regressor `microml.MLP` Constructor: <p>
 - `microml.MLP([input_dim, hidden_dim1,hidden_dim2..., output_dim], True/False)`: Allocates model weights and momentum buffers on the MicroPython heap with Xavier uniform random initialization. If True-> Regression, False-> classification
 - `fit(X, y, epochs=100, lr=0.01, momentum=0.9)`:Trains the neural network using SGD with momentum and MSE loss.
@@ -160,60 +160,89 @@ Now go to `/build-standard` and run `./micropython` in your shell.
 - `Kernels`: **microml.KERNEL_LINEAR**, **microml.KERNEL_RBF.fit(X, y, n_features, epochs=100, lr=0.01, C=1.0)**: Optimizes support vector margins.
 - `predict(X_sample)`: Returns binary predicted class (0 or 1).
 
-## Sine wave example
+## IRIS Flower classification using MLP 
 ```python
 import array
-import math
 import microml
+from ulab import numpy as np
+# 1. Multi-Class Dataset (6 training samples, 4 features)
+X_train = np.array( [
+    [5.1, 3.5, 1.4, 0.2], # Setosa (0)
+    [4.9, 3.0, 1.4, 0.2], # Setosa (0)
+    [7.0, 3.2, 4.7, 1.4], # Versicolor (1)
+    [6.4, 3.2, 4.5, 1.5], # Versicolor (1)
+    [6.3, 3.3, 6.0, 2.5], # Virginica (2)
+    [5.8, 2.7, 5.1, 1.9]  # Virginica (2)
+])
+y_train = np.array([0, 0, 1, 1, 2, 2])
 
-# 1. Generate Training Data (Sinewave: y = sin(x))
-NUM_SAMPLES = 50
-X_raw = []
-y_raw = []
+# 2. Train MLP Model (4 inputs, 8 hidden, 3 outputs)
+nn = microml.MLP([4, 8, 8, 3], False)
+nn.fit(X_train, y_train, 5000, 0.005, 0.9)
 
-# Generate points in range [-pi, pi]
-step = (2 * math.pi) / NUM_SAMPLES
-for i in range(NUM_SAMPLES):
-    x_val = -math.pi + i * step
-    y_val = math.sin(x_val)
+# 3. Test Set (Ground Truth vs Model Predictions)
+X_test = np.array([
+    [5.0, 3.4, 1.5, 0.2], # True: 0
+    [4.8, 3.1, 1.6, 0.2], # True: 0
+    [6.2, 2.9, 4.3, 1.3], # True: 1
+    [5.9, 3.0, 4.2, 1.5], # True: 1
+    [6.5, 3.0, 5.2, 2.0], # True: 2
+    [5.7, 2.8, 4.5, 1.3]  # True: 1 (Edge case)
+])
+y_true = np.array([0, 0, 1, 1, 2, 2])
 
-    X_raw.append(x_val)
-    y_raw.append(y_val)
+# Collect Model Predictions
+y_pred = []
+for sample in X_test:
+    label= nn.predict(sample)
+    y_pred.append(label)
 
-# Pack data into C-compatible float arrays
-X_train = array.array("f", X_raw)
-y_train = array.array("f", y_raw)
+y_p=np.array(y_pred)
 
-# 2. Instantiate MLPRegressor
-# Architecture: 1 Input -> 8 Hidden Neurons -> 1 Output
-mlp_reg = microml.MLPRegressor(1, 16, 1)
-
-# 3. Train the Model
-# Parameters: fit(X, y, epochs, learning_rate, momentum)
-print("Training MLP Regressor on Sine Wave...")
-mlp_reg.fit(X_train, y_train, 5000, 0.001, 0.9)
-
-# 4. Evaluate & Predict
-print("\nPredictions vs Actual:")
-print("----------------------------")
-print("  x   |  Predicted  |   Actual   | Error")
-print("----------------------------")
-
-# Test 5 sample points
-test_points = [-math.pi / 2, -math.pi / 4, 0.0, math.pi / 4, math.pi / 2]
-
-for x_test in test_points:
-    x_buf = array.array("f", [x_test])
-
-    # Model outputs a single float value directly
-    pred = mlp_reg.predict(x_buf)
-    actual = math.sin(x_test)
-    error = abs(pred - actual)
-
-    print(f"{x_test: .2f} |  {pred: .4f}    |  {actual: .4f}  | {error:.4f}")
+labels = ["Setosa", "Versicolor", "Virginica"]
+#microml.classification_report(y_true, y_pred, labels=labels)
+microml.confusion_matrix(y_true, y_p, num_classes=3, labels=labels, title="IRIS flower classification")
+microml.classification_report(y_true, y_p, labels=labels, digits=4)
 
 ```
 ### Result
 
-<img width="400" height="400" alt="image" src="https://github.com/user-attachments/assets/5ef09b3a-db8c-4b20-a2bb-a5131e490264" />
+```
+MPY: soft reboot
+Epoch 500/5000 - Loss: 0.0003 - Accuracy: 100.0%
+Epoch 1000/5000 - Loss: 0.0001 - Accuracy: 100.0%
+Epoch 1500/5000 - Loss: 0.0001 - Accuracy: 100.0%
+Epoch 2000/5000 - Loss: 0.0001 - Accuracy: 100.0%
+Epoch 2500/5000 - Loss: 0.0000 - Accuracy: 100.0%
+Epoch 3000/5000 - Loss: 0.0000 - Accuracy: 100.0%
+Epoch 3500/5000 - Loss: 0.0000 - Accuracy: 100.0%
+Epoch 4000/5000 - Loss: 0.0000 - Accuracy: 100.0%
+Epoch 4500/5000 - Loss: 0.0000 - Accuracy: 100.0%
+Epoch 5000/5000 - Loss: 0.0000 - Accuracy: 100.0%
+
+--- IRIS flower classification ---
+Actual \ Pred   |     Setosa Versicolor  Virginica
+---------------------------------------------------
+Setosa          |          2          0          0
+Versicolor      |          0          2          0
+Virginica       |          0          1          1
+---------------------------------------------------
+Accuracy: 83.33% (5/6)
+
+==========================================================
+                  CLASSIFICATION REPORT
+==========================================================
+Class           Precision     Recall   F1-Score    Support
+----------------------------------------------------------
+Setosa             1.0000     1.0000     1.0000          2
+Versicolor         0.6667     1.0000     0.8000          2
+Virginica          1.0000     0.5000     0.6667          2
+----------------------------------------------------------
+Accuracy                                 0.8333          6
+Macro Avg          0.8889     0.8333     0.8222          6
+Weighted Avg       0.8889     0.8333     0.8222          6
+==========================================================
+
+```
+
 
