@@ -108,7 +108,8 @@ jobs:
           make -C micropython/ports/esp32 \
             BOARD=${{ matrix.board }} \
             ${{ matrix.variant != '' && format('BOARD_VARIANT={0}', matrix.variant) || '' }} \
-            USER_C_MODULES=${{ github.workspace }}/micropython.cmake
+            USER_C_MODULES=${{ github.workspace }}/micropython.cmake \
+             FROZEN_MANIFEST=${{ github.workspace }}/manifest.py
 
       # --- Package Artifacts ---
       - name: Prepare Binary Output
