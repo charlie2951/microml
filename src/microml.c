@@ -174,10 +174,92 @@ static mp_obj_t mlp_predict_proba_py(mp_obj_t self_in, mp_obj_t x_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(mlp_predict_proba_obj, mlp_predict_proba_py);
 
+// Method: mlp.save(filename)
+static mp_obj_t mlp_save_py(mp_obj_t self_in, mp_obj_t filename_in) {
+    mp_obj_mlp_t *self = MP_OBJ_TO_PTR(self_in);
+
+    // Open file in write-binary mode using MicroPython VFS
+    mp_obj_t open_args[2] = { filename_in, MP_OBJ_NEW_QSTR(MP_QSTR_wb) };
+    mp_obj_t file = mp_builtin_open(2, open_args, (mp_map_t *)&mp_const_empty_map);
+
+    int err = 0;
+
+    // 1. Write Header Metadata: num_layers, is_regression
+    int header[2] = { self->model.num_layers, self->model.is_regression };
+    mp_stream_write_exactly(file, header, sizeof(header), &err);
+
+    // 2. Write layer_sizes array
+    mp_stream_write_exactly(file, self->model.layer_sizes, self->model.num_layers * sizeof(int), &err);
+
+    // 3. Write Weights and Biases layer by layer
+    int num_weight_matrices = self->model.num_layers - 1;
+    for (int l = 0; l < num_weight_matrices; l++) {
+        int in_dim = self->model.layer_sizes[l];
+        int out_dim = self->model.layer_sizes[l + 1];
+
+        // Write weight matrix [in_dim * out_dim]
+        mp_stream_write_exactly(file, self->model.weights[l], in_dim * out_dim * sizeof(float), &err);
+        
+        // Write bias array [out_dim]
+        mp_stream_write_exactly(file, self->model.biases[l], out_dim * sizeof(float), &err);
+    }
+
+    mp_stream_close(file);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(mlp_save_obj, mlp_save_py);
+
+// Method: mlp.load(filename)
+static mp_obj_t mlp_load_py(mp_obj_t self_in, mp_obj_t filename_in) {
+    mp_obj_mlp_t *self = MP_OBJ_TO_PTR(self_in);
+
+    // Open file in read-binary mode using MicroPython VFS
+    mp_obj_t open_args[2] = { filename_in, MP_OBJ_NEW_QSTR(MP_QSTR_rb) };
+    mp_obj_t file = mp_builtin_open(2, open_args, (mp_map_t *)&mp_const_empty_map);
+
+    int err = 0;
+
+    // 1. Read Header Metadata
+    int header[2];
+    mp_stream_read_exactly(file, header, sizeof(header), &err);
+
+    int num_layers = header[0];
+    int is_regression = header[1];
+
+    // 2. Read layer dimensions
+    int *layer_sizes = m_new(int, num_layers);
+    mp_stream_read_exactly(file, layer_sizes, num_layers * sizeof(int), &err);
+
+    // 3. Free old allocations if model is already initialized
+    if (self->model.layer_sizes != NULL) {
+        mlp_free(&self->model);
+    }
+
+    // 4. Re-allocate memory structures for network topology
+    mlp_init(&self->model, layer_sizes, num_layers, is_regression);
+    m_del(int, layer_sizes, num_layers);
+
+    // 5. Read binary Weights and Biases back into allocated memory buffers
+    int num_weight_matrices = self->model.num_layers - 1;
+    for (int l = 0; l < num_weight_matrices; l++) {
+        int in_dim = self->model.layer_sizes[l];
+        int out_dim = self->model.layer_sizes[l + 1];
+
+        mp_stream_read_exactly(file, self->model.weights[l], in_dim * out_dim * sizeof(float), &err);
+        mp_stream_read_exactly(file, self->model.biases[l], out_dim * sizeof(float), &err);
+    }
+
+    mp_stream_close(file);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(mlp_load_obj, mlp_load_py);
+
 static const mp_rom_map_elem_t mlp_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_fit), MP_ROM_PTR(&mlp_fit_obj) },
     { MP_ROM_QSTR(MP_QSTR_predict), MP_ROM_PTR(&mlp_predict_obj) },
     { MP_ROM_QSTR(MP_QSTR_predict_proba), MP_ROM_PTR(&mlp_predict_proba_obj) },
+    { MP_ROM_QSTR(MP_QSTR_save), MP_ROM_PTR(&mlp_save_obj) },
+    { MP_ROM_QSTR(MP_QSTR_load), MP_ROM_PTR(&mlp_load_obj) },
 };
 static MP_DEFINE_CONST_DICT(mlp_locals_dict, mlp_locals_dict_table);
 

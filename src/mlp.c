@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <math.h>
 #include <string.h>
 #include "py/runtime.h"
@@ -254,4 +255,77 @@ void mlp_predict_reg(MLPModel *model, const float *x, float *out) {
     for (int k = 0; k < out_dim; k++) {
         out[k] = model->activations[out_layer][k];
     }
+}
+
+int mlp_save(const MLPModel *model, const char *filepath) {
+    FILE *f = fopen(filepath, "wb");
+    if (!f) {
+        return -1; // File creation failed
+    }
+
+    // Write file signature header for safety validation (Magic Bytes)
+    const char magic[4] = {'M', 'L', 'P', '1'};
+    if (fwrite(magic, sizeof(char), 4, f) != 4) {
+        fclose(f);
+        return -2;
+    }
+
+    // Write metadata
+    fwrite(&model->num_layers, sizeof(int), 1, f);
+    fwrite(&model->is_regression, sizeof(int), 1, f);
+    fwrite(model->layer_sizes, sizeof(int), model->num_layers, f);
+
+    // Write weights and biases for each connection layer
+    int num_weight_matrices = model->num_layers - 1;
+    for (int l = 0; l < num_weight_matrices; l++) {
+        int in_dim = model->layer_sizes[l];
+        int out_dim = model->layer_sizes[l + 1];
+
+        fwrite(model->weights[l], sizeof(float), in_dim * out_dim, f);
+        fwrite(model->biases[l], sizeof(float), out_dim, f);
+    }
+
+    fclose(f);
+    return 0; // Success
+}
+
+int mlp_load(MLPModel *model, const char *filepath) {
+    FILE *f = fopen(filepath, "rb");
+    if (!f) {
+        return -1; // File not found or read error
+    }
+
+    // Read and verify magic signature
+    char magic[4];
+    if (fread(magic, sizeof(char), 4, f) != 4 || 
+        magic[0] != 'M' || magic[1] != 'L' || magic[2] != 'P' || magic[3] != '1') {
+        fclose(f);
+        return -2; // Invalid file format signature
+    }
+
+    // Read metadata header
+    int num_layers = 0;
+    int is_regression = 0;
+    fread(&num_layers, sizeof(int), 1, f);
+    fread(&is_regression, sizeof(int), 1, f);
+
+    int *layer_sizes = m_new(int, num_layers);
+    fread(layer_sizes, sizeof(int), num_layers, f);
+
+    // Initialize allocations for the target structure model
+    mlp_init(model, layer_sizes, num_layers, is_regression);
+    m_del(int, layer_sizes, num_layers); // Temporarily freed since mlp_init clones layer_sizes internally
+
+    // Read serialized weight and bias float arrays back into memory
+    int num_weight_matrices = model->num_layers - 1;
+    for (int l = 0; l < num_weight_matrices; l++) {
+        int in_dim = model->layer_sizes[l];
+        int out_dim = model->layer_sizes[l + 1];
+
+        fread(model->weights[l], sizeof(float), in_dim * out_dim, f);
+        fread(model->biases[l], sizeof(float), out_dim, f);
+    }
+
+    fclose(f);
+    return 0; // Success
 }
