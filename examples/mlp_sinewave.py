@@ -40,3 +40,28 @@ for x_test in test_points:
     print("{: .2f} |  {: .4f}    |  {: .4f}  | {:.4f}".format(
         x_test, pred, actual, error
     ))
+# save model(new feature )
+mlp_reg.save("mlp_sine.bin")
+print("Model saved!")
+# Load model weights into an existing instance
+saved_model = microml.MLP([2, 1])  # dummy model, Dimensions will be updated on load
+saved_model.load("mlp_sine.bin")
+test_points=np.linspace(-math.pi, math.pi, 50)
+# 4. Evaluate & Predict
+print("\nPredictions vs Actual:")
+print("---------------------------------------")
+print("  x    |  Predicted  |   Actual   | Error")
+print("---------------------------------------")
+
+for x_test in test_points:
+    # Wrap test scalar in a 1D ulab numpy array
+    x_buf = np.array([x_test])
+
+    # Unpack predicted float from returned ulab array or list
+    pred = saved_model.predict(x_buf)[0]
+    actual = math.sin(x_test)
+    error = abs(pred - actual)
+    
+    print("{: .2f} |  {: .4f}    |  {: .4f}  | {:.4f}".format(
+        x_test, pred, actual, error
+    ))
