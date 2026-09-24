@@ -10,11 +10,12 @@ It features classical ML algorithms as well as an optimized **Multi-Layer Percep
 ---
 
 > [!NOTE]
-> From releases V2.0.0, `ulab` (NumPy-style package for Micropython) is also included with firmware to make array operations easier. For more details about **`ulab`**, see [here](https://micropython-ulab.readthedocs.io/en/latest)
-> New Features available from V2.0.0:<p>
+> From releases V2.0.0, `ulab` (NumPy-style package for Micropython) is also included with firmware to make array operations easier. For more details about **`ulab`**, see [here](https://micropython-ulab.readthedocs.io/en/latest) <p>
+> New Features available from V2.0.2:<p>
 > * `csvwrite()` and `csvread()` for working with csv files<p>
-> * classification report and confusion matrix print<p>
+> * `classification_report()` and `confusion_matrix()` print<p>
 > * `StandardScaler` and `MinMaxScaler` for preprocessing <p>
+> * `model.save()` and `model.load()` to save a trained MLP model and to load it.<p>
 
 ## Features
 
