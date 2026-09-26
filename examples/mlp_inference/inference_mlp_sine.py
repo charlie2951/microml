@@ -6,7 +6,7 @@ test_points=np.linspace(-math.pi, math.pi, 20)
 
 # Load model weights into an existing instance
 saved_model = microml.MLP([2, 1])  # dummy model, Dimensions will be updated on load
-saved_model.load("mlp_sine.bin")
+saved_model.load("sine_mlp.bin")
 test_points=np.linspace(-math.pi, math.pi, 50)
 # 4. Evaluate & Predict
 print("\nSine wave Regression problem: Predictions vs Actual:")
