@@ -7,6 +7,7 @@ add_library(usermod_microml INTERFACE)
 target_sources(usermod_microml INTERFACE
     ${CMAKE_CURRENT_LIST_DIR}/microml.c
     ${CMAKE_CURRENT_LIST_DIR}/mlp.c
+    ${CMAKE_CURRENT_LIST_DIR}/cnn.c
     
 )
 

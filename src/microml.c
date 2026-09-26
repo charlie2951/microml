@@ -5,6 +5,7 @@
 #include "py/builtin.h"
 #include "microml.h"
 #include "mlp.h"
+#include "cnn.h"
 
 #ifndef STATIC
 #define STATIC static
@@ -62,6 +63,97 @@ static int* extract_int_targets(mp_obj_t y_in, size_t *out_n_samples) {
         return NULL;
     }
 }
+//===========================================
+// CNN WRAPPER
+//============================================
+
+typedef struct {
+    mp_obj_base_t base;
+    CNNModel model;
+} mp_obj_cnn_t;
+
+const mp_obj_type_t microml_cnn_type;
+
+// Constructor: microml.CNN(image_shape, out_channels, kernel_size, pool_size, dense_layers)
+// Example: microml.CNN((28, 28, 1), out_channels=4, kernel_size=3, pool_size=2, dense_layers=[16, 10])
+static mp_obj_t cnn_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
+    mp_arg_check_num(n_args, n_kw, 5, 5, false);
+
+    // Parse image_shape tuple (Height, Width, Channels)
+    size_t shape_len;
+    mp_obj_t *shape_items;
+    mp_obj_get_array(args[0], &shape_len, &shape_items);
+    
+    int in_h = mp_obj_get_int(shape_items[0]);
+    int in_w = mp_obj_get_int(shape_items[1]);
+    int in_c = (shape_len >= 3) ? mp_obj_get_int(shape_items[2]) : 1;
+
+    int out_channels = mp_obj_get_int(args[1]);
+    int kernel_size = mp_obj_get_int(args[2]);
+    int pool_size = mp_obj_get_int(args[3]);
+
+    // Parse dense_layers array
+    size_t num_dense;
+    mp_obj_t *dense_items;
+    mp_obj_get_array(args[4], &num_dense, &dense_items);
+
+    int *dense_layers = m_new(int, num_dense);
+    for (size_t i = 0; i < num_dense; i++) {
+        dense_layers[i] = mp_obj_get_int(dense_items[i]);
+    }
+
+    mp_obj_cnn_t *self = m_new_obj(mp_obj_cnn_t);
+    self->base.type = &microml_cnn_type;
+
+    cnn_init(&self->model, in_h, in_w, in_c, out_channels, kernel_size, pool_size, dense_layers, (int)num_dense);
+    m_del(int, dense_layers, num_dense);
+
+    return MP_OBJ_FROM_PTR(self);
+}
+
+// Method: cnn.predict(image_buffer)
+static mp_obj_t cnn_predict_py(mp_obj_t self_in, mp_obj_t x_in) {
+    mp_obj_cnn_t *self = MP_OBJ_TO_PTR(self_in);
+    mp_buffer_info_t buf_x;
+    mp_get_buffer_raise(x_in, &buf_x, MP_BUFFER_READ);
+
+    int out_dim = self->model.dense.layer_sizes[self->model.dense.num_layers - 1];
+    float *probs = m_new(float, out_dim);
+
+    int pred_class = cnn_predict(&self->model, (float *)buf_x.buf, probs);
+    m_del(float, probs, out_dim);
+
+    return mp_obj_new_int(pred_class);
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(cnn_predict_obj, cnn_predict_py);
+
+// Method: cnn.load(filename)
+static mp_obj_t cnn_load_py(mp_obj_t self_in, mp_obj_t filename_in) {
+    mp_obj_cnn_t *self = MP_OBJ_TO_PTR(self_in);
+
+    mp_obj_t open_args[2] = { filename_in, MP_OBJ_NEW_QSTR(MP_QSTR_rb) };
+    mp_obj_t file = mp_builtin_open(2, open_args, (mp_map_t *)&mp_const_empty_map);
+
+    cnn_load(&self->model, file);
+
+    mp_stream_close(file);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(cnn_load_obj, cnn_load_py);
+
+static const mp_rom_map_elem_t cnn_locals_dict_table[] = {
+    { MP_ROM_QSTR(MP_QSTR_predict), MP_ROM_PTR(&cnn_predict_obj) },
+    { MP_ROM_QSTR(MP_QSTR_load), MP_ROM_PTR(&cnn_load_obj) },
+};
+static MP_DEFINE_CONST_DICT(cnn_locals_dict, cnn_locals_dict_table);
+
+MP_DEFINE_CONST_OBJ_TYPE(
+    microml_cnn_type,
+    MP_QSTR_CNN,
+    MP_TYPE_FLAG_NONE,
+    make_new, cnn_make_new,
+    locals_dict, &cnn_locals_dict
+);
 
 // ==========================================
 // DEEP MULTI-LAYER PERCEPTRON (MLP) WRAPPER
@@ -530,6 +622,7 @@ static const mp_rom_map_elem_t microml_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_MLP), MP_ROM_PTR(&microml_mlp_type) },
     { MP_ROM_QSTR(MP_QSTR_KERNEL_LINEAR), MP_ROM_INT(SVM_KERNEL_LINEAR) },
     { MP_ROM_QSTR(MP_QSTR_KERNEL_RBF), MP_ROM_INT(SVM_KERNEL_RBF) },
+    { MP_ROM_QSTR(MP_QSTR_CNN), MP_ROM_PTR(&microml_cnn_type) },//cnn module registration
 };
 static MP_DEFINE_CONST_DICT(microml_module_globals, microml_module_globals_table);
 
